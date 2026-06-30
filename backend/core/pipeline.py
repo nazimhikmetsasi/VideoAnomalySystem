@@ -43,6 +43,20 @@ class VideoKafkaProducer:
             l, a, b = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
             cl = clahe.apply(l)
+            # --- YENİ EKLENEN KISIM: Gece/Düşük Işık Optimizasyonu (CLAHE) ---
+            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            cl = clahe.apply(l)
+            limg = cv2.merge((cl,a,b))
+            frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+            # ------------------------------------------------------------------
+            
+            # Kamerayı ekranda görmek için eklediğimiz satırlar:
+            cv2.imshow("MCBU Kamera Test - CLAHE", frame)
+            cv2.waitKey(1)
+            
+            # Kareyi metin formatına (Base64) çeviriyoruz...
             limg = cv2.merge((cl,a,b))
             frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
             # ------------------------------------------------------------------
