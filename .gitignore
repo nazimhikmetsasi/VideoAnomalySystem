@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+data/test_videos/
+*.pt
+*.trt
+postgres_data/
+mongo_data/
