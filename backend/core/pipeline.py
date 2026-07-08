@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,17 +8,62 @@ import cv2
 import threading
 import json
 import base64
-import time 
+import time
 from kafka import KafkaProducer
+
+# ---------------------------------------------------------------------------
+# LOGGING YAPISINI KONFIGÜRE EDİYORUZ
+# ---------------------------------------------------------------------------
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_FORMAT = '[%(levelname)s] %(asctime)s - %(message)s'
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format=LOG_FORMAT,
+    datefmt=DATE_FORMAT,
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(
+            os.path.join(LOG_DIR, 'pipeline.log'),
+            encoding='utf-8'
+        )
+    ]
+)
+
+logger = logging.getLogger('video_pipeline')
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# KAFKA CALLBACK FONKSİYONLARI
+# ---------------------------------------------------------------------------
+def on_send_success(record_metadata):
+    """Mesaj başarıyla gönderildiğinde çağrılır."""
+    logger.debug(
+        f"Mesaj gönderildi → Topic: {record_metadata.topic} | "
+        f"Partition: {record_metadata.partition} | "
+        f"Offset: {record_metadata.offset}"
+    )
+
+def on_send_error(exception):
+    """Mesaj gönderilemediğinde çağrılır."""
+    logger.error(f"Kafka'ya mesaj gönderilemedi: {exception}")
+# ---------------------------------------------------------------------------
 
 
 class VideoKafkaProducer:
     def __init__(self, source=None, topic=None):
-        # Kamera kaynağını .env'den oku, parametre verilmezse varsayılan 0
+        # Kamera kaynağını .env'den oku
         camera_source = source if source is not None else os.getenv('CAMERA_SOURCE', 0)
         self.cap = cv2.VideoCapture(int(camera_source))
 
         self.topic = topic or os.getenv('KAFKA_TOPIC', 'video-stream')
+
+        # Kamera ID'sini .env'den oku — Kafka partition key'i olarak kullanılacak
+        self.camera_id = os.getenv('CAMERA_ID', 'cam_01')
 
         # Frame boyutlarını .env'den oku
         self.frame_width = int(os.getenv('FRAME_WIDTH', 640))
@@ -25,28 +71,46 @@ class VideoKafkaProducer:
 
         # Kafka'ya bağlanıyoruz
         bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '127.0.0.1:9092')
-        self.producer = KafkaProducer(
-            bootstrap_servers=[bootstrap_servers],
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
-        )
+
+        try:
+            self.producer = KafkaProducer(
+                bootstrap_servers=[bootstrap_servers],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                key_serializer=lambda k: k.encode('utf-8'),
+                acks='all',
+                retries=3,
+                retry_backoff_ms=500
+            )
+            logger.info(
+                f"Kafka Producer '{self.topic}' kuyruğu için başlatıldı. "
+                f"Sunucu: {bootstrap_servers} | Kamera: {self.camera_id} | acks=all | retries=3"
+            )
+        except Exception as e:
+            logger.error(f"Kafka Producer başlatılamadı: {e}")
+            raise
+
         self.stopped = False
-        print(f"[BİLGİ] Kafka Producer '{self.topic}' kuyruğu için başlatıldı.")
 
     def start(self):
-        # Kamerayı ana programı kilitlememesi için ayrı bir thread (iş parçacığı) üzerinde başlatıyoruz
+        logger.debug("Video stream thread'i başlatılıyor...")
         t = threading.Thread(target=self.stream_video, args=())
         t.daemon = True
         t.start()
+        logger.info("Video stream thread'i başlatıldı.")
         return self
 
     def stream_video(self):
+        frame_count = 0
+
         while not self.stopped:
             success, frame = self.cap.read()
             if not success:
-                print("[HATA] Kameradan görüntü okunamadı.")
+                logger.error("Kameradan görüntü okunamadı. Stream durduruluyor.")
                 break
 
-            # Görüntüyü Kafka'dan hızlı akması için boyutlandırıyoruz (Performans Optimizasyonu)
+            frame_count += 1
+
+            # Görüntüyü boyutlandırıyoruz
             frame = cv2.resize(frame, (self.frame_width, self.frame_height))
 
             # --- Gece/Düşük Işık Optimizasyonu (CLAHE) ---
@@ -58,30 +122,41 @@ class VideoKafkaProducer:
             frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
             # ------------------------------------------------
 
-            # Kamerayı ekranda görmek için eklediğimiz satırlar
+            # Kamerayı ekranda göster
             cv2.imshow("MCBU Kamera Test - CLAHE", frame)
             cv2.waitKey(1)
 
-            # Kareyi metin formatına (Base64) çeviriyoruz ki Kafka'dan JSON olarak geçebilsin
+            # Kareyi Base64'e çeviriyoruz
             _, buffer = cv2.imencode('.jpg', frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
 
-            # Kafka'ya gönderilecek veri paketi (Payload)
+            # Kafka'ya gönderilecek veri paketi
             message = {
-                "camera_id": "cam_01",
+                "camera_id": self.camera_id,   # artık .env'den geliyor
                 "timestamp": time.time(),
                 "frame_data": jpg_as_text
             }
 
-            # Veriyi kuyruğa fırlat
-            self.producer.send(self.topic, message)
+            # camera_id'yi Kafka partition key'i olarak kullanıyoruz
+            self.producer.send(
+                self.topic,
+                key=self.camera_id,
+                value=message
+            ) \
+            .add_callback(on_send_success) \
+            .add_errback(on_send_error)
 
-            # Sistemi yormamak için saniyede yaklaşık 30 kareye (FPS) sabitliyoruz
+            # Her 100 karede bir bilgi logu
+            if frame_count % 100 == 0:
+                logger.debug(f"{frame_count}. kare Kafka'ya gönderildi.")
+
+            # Saniyede ~30 kare
             time.sleep(0.033)
 
     def stop(self):
         self.stopped = True
         self.cap.release()
         cv2.destroyAllWindows()
+        self.producer.flush()
         self.producer.close()
-        print("[BİLGİ] Kafka Producer durduruldu.")
+        logger.info("Kafka Producer ve kamera bağlantısı kapatıldı.")
