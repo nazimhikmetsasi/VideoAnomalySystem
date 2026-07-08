@@ -7,7 +7,6 @@ load_dotenv()
 import cv2
 import threading
 import json
-import base64
 import time
 from kafka import KafkaProducer
 
@@ -75,7 +74,8 @@ class VideoKafkaProducer:
         try:
             self.producer = KafkaProducer(
                 bootstrap_servers=[bootstrap_servers],
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                # Ham bytes gönderiyoruz — JSON/Base64 yok, daha hızlı
+                value_serializer=lambda v: v if isinstance(v, bytes) else json.dumps(v).encode('utf-8'),
                 key_serializer=lambda k: k.encode('utf-8'),
                 acks='all',
                 retries=3,
@@ -126,22 +126,21 @@ class VideoKafkaProducer:
             cv2.imshow("MCBU Kamera Test - CLAHE", frame)
             cv2.waitKey(1)
 
-            # Kareyi Base64'e çeviriyoruz
+            # Kareyi ham JPEG bytes'a çeviriyoruz (Base64 YOK — %33 daha küçük)
             _, buffer = cv2.imencode('.jpg', frame)
-            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
 
-            # Kafka'ya gönderilecek veri paketi
-            message = {
-                "camera_id": self.camera_id,   # artık .env'den geliyor
-                "timestamp": time.time(),
-                "frame_data": jpg_as_text
-            }
+            # Metadata'yı Kafka header'ı olarak gönderiyoruz
+            headers = [
+                ('camera_id', self.camera_id.encode('utf-8')),
+                ('timestamp', str(time.time()).encode('utf-8'))
+            ]
 
-            # camera_id'yi Kafka partition key'i olarak kullanıyoruz
+            # Frame'i direkt bytes olarak gönderiyoruz
             self.producer.send(
                 self.topic,
                 key=self.camera_id,
-                value=message
+                value=buffer.tobytes(),
+                headers=headers
             ) \
             .add_callback(on_send_success) \
             .add_errback(on_send_error)
