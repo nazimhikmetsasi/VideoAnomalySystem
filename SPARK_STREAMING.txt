@@ -1,0 +1,66 @@
+Stream Islemcisi — Spark ve Sliding Window (Asama 4)
+====================================================
+
+MIMARI
+  Kamera pipeline -> Kafka (anomaly-events)
+                         |
+            +------------+------------+
+            |                         |
+   sliding_window.py          spark_job.py
+   (BIRINCIL / varsayilan)     (opsiyonel)
+            |                         |
+            +------------+------------+
+                         |
+              Kafka (verified-anomalies)
+                         |
+                    FastAPI -> Dashboard
+
+VARSayILAN: sliding_window (Python)
+  - Spark/Java gerektirmez
+  - Windows'ta sorunsuz calisir
+  - .env: STREAM_MODE=python
+
+OPSIYONEL: Spark Structured Streaming
+  - Java 8+ ve internet (jar indirme) gerekir
+  - .env: STREAM_MODE=spark
+  - veya: .\run_stream_spark.bat
+
+CALISTIRMA
+  Docker + Kafka acik olmali:
+    docker-compose up -d zookeeper kafka
+
+  Sliding window (onerilen):
+    .\run_stream.bat
+
+  Spark (deneysel):
+    .\run_stream_spark.bat
+
+  Filtre testi (Kafka gerekmez):
+    .\run_stream_test.bat
+
+AYARLAR (.env)
+  STREAM_MODE=python          python | spark
+  SPARK_WINDOW_SEC=10         pencere suresi (sn)
+  SPARK_MIN_EVENTS=2          dogrulama icin min olay sayisi
+  KAFKA_ANOMALY_TOPIC=anomaly-events
+  KAFKA_VERIFIED_TOPIC=verified-anomalies
+
+  SPARK_MIN_EVENTS=1 yaparsaniz her olay aninda gecer (test icin).
+  SPARK_MIN_EVENTS=2 yaparsaniz ayni track+tip icinde 2 sinyal gerekir.
+
+API DAVRANISI
+  SPARK_MIN_EVENTS > 1 ise API sadece verified-anomalies dinler.
+  SPARK_MIN_EVENTS = 1 ise API hem anomaly-events hem verified dinler.
+
+TEZ ICIN NOT
+  Tezde Spark mimarisi anlatilir; uygulamada birincil islemci
+  sliding_window olarak dokumante edilmistir. Spark alternatif
+  buyuk olcekli dagitik deployment icindir.
+
+SORUN GIDerme
+  | Sorun                         | Cozum                          |
+  |-------------------------------|--------------------------------|
+  | Kafka baglanamadi             | docker-compose up -d kafka     |
+  | Bildirim gelmiyor (stream acik)| SPARK_MIN_EVENTS=1 dene       |
+  | Spark ClassNotFoundException  | Java kurulu mu? Internet acik? |
+  | Spark jar indirilemiyor       | SPARK_KAFKA_PACKAGE env kontrol|

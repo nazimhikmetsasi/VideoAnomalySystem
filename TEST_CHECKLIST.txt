@@ -41,4 +41,4 @@ DURDURMA
 BILINEN SINIRLAMALAR
 - MediaPipe kullanilmiyor; pose = YOLOv8-pose
 - Gemini LLM icin GEMINI_API_KEY gerekli (Asama 2)
-- Spark yerine sliding_window.py yerel fallback
+- Birincil stream islemci: sliding_window (SPARK_STREAMING.txt)

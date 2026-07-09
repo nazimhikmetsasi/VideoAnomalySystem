@@ -62,7 +62,8 @@ services:
       - kafka
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SPARK_MIN_EVENTS: 1
+      STREAM_MODE: python
+      SPARK_MIN_EVENTS: 2
     profiles:
       - full
 
