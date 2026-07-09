@@ -13,6 +13,7 @@ frontend/node_modules/
 frontend/dist/
 .pytest_cache/
 logs/
+results/
 *.log
 yolov8n.pt
 yolov8n-pose.pt

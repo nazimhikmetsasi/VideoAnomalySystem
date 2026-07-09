@@ -1,0 +1,10 @@
+{
+  "video": "fall_01.mp4",
+  "camera_id": "cam_01",
+  "description": "Yere dusme simulasyonu",
+  "events": [
+    {"type": "NORMAL", "start_sec": 0.0, "end_sec": 4.0},
+    {"type": "FALL", "start_sec": 4.5, "end_sec": 7.0},
+    {"type": "NORMAL", "start_sec": 7.5, "end_sec": 15.0}
+  ]
+}

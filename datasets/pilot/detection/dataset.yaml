@@ -1,0 +1,12 @@
+# YOLO detection mAP icin ornek dataset yapisi
+# 1) datasets/pilot/detection/images/  -> JPG/PNG kareler
+# 2) datasets/pilot/detection/labels/  -> ayni isimde .txt YOLO etiketleri
+# 3) Bu dosyadaki path ve class sayisini guncelleyin
+# 4) Calistir: .\run_pilot_eval.bat --detection-only
+
+path: datasets/pilot/detection
+train: images
+val: images
+
+names:
+  0: person

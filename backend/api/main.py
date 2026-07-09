@@ -153,6 +153,17 @@ def llm_test():
     return llm_reporter.test_connection()
 
 
+@app.get('/api/evaluation/latest')
+def evaluation_latest():
+    root = os.path.join(os.path.dirname(__file__), '..', '..')
+    latest = os.path.normpath(os.path.join(root, 'results', 'latest.json'))
+    if not os.path.exists(latest):
+        return {'available': False, 'message': 'Henuz pilot degerlendirme calistirilmadi. run_pilot_eval.bat kullanin.'}
+    with open(latest, encoding='utf-8') as f:
+        data = json.load(f)
+    return {'available': True, 'results': data}
+
+
 @app.get('/api/anomalies')
 def list_anomalies(limit: int = 50):
     return {'items': postgres_repo.list_recent(limit)}

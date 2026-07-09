@@ -1,0 +1,62 @@
+MCBU — Pilot Test Protokolu (Asama 3)
+=====================================
+
+AMAC
+  Tez icin olculebilir metrikler: mAP, precision/recall/accuracy, latency.
+
+SENARYOLAR (5 video)
+  1. normal_01.mp4  — sadece yuruyus (yanlis alarm testi)
+  2. run_01.mp4     — kosma
+  3. fall_01.mp4    — yere dusme / hizla oturma
+  4. zone_01.mp4    — yasakli bolgeye giris (config/zones.json)
+  5. mixed_01.mp4   — kosma + bolge ihlali
+
+KAYIT
+  - Telefon veya webcam ile 640x480, 10-20 sn
+  - Dosyalari datasets/pilot/videos/ klasorune koy
+  - annotations/*.json icinde start_sec/end_sec duzenle
+
+CALISTIRMA
+  .\run_pilot_eval.bat
+
+  Sadece mAP:
+  .\run_pilot_eval.bat --detection-only
+
+  Hizli test (ilk 150 kare):
+  .\run_pilot_eval.bat --max-frames 150
+
+METRIKLER
+  | Metrik              | Anlami                                    |
+  |---------------------|-------------------------------------------|
+  | mAP@0.5             | YOLO kisi tespiti dogrulugu               |
+  | Precision           | TP / (TP + FP)                            |
+  | Recall              | TP / (TP + FN)                            |
+  | Accuracy            | TP / (TP + FP + FN)                       |
+  | FAR                 | Normal segmentte yanlis alarm / saniye    |
+  | avg_frame_latency_ms| detect+track+pose+analyze sure (ms/kare)  |
+
+  Eslestirme toleransi: +-1.5 saniye (varsayilan)
+
+CIKTILAR
+  results/pilot_YYYY-MM-DD_HH-MM-SS/
+    summary.json
+    per_video.csv
+    PILOT_REPORT.txt
+  results/latest.json
+
+YOLO mAP (ozel etiket)
+  datasets/pilot/detection/images/  -> kareler
+  datasets/pilot/detection/labels/  -> YOLO .txt etiketler
+  dataset.yaml guncelle, sonra --detection-only
+
+TEZ TABLOSU ORNEGI
+  | Senaryo    | Precision | Recall | Latency (ms) |
+  |------------|-----------|--------|--------------|
+  | Kosma      | ...       | ...    | ...          |
+  | Dusme      | ...       | ...    | ...          |
+  | Bolge      | ...       | ...    | ...          |
+  | Genel      | (summary) | ...    | ...          |
+
+NOT
+  Videolar yoksa script calisir ama "videos_missing" uyarisi verir.
+  Once videolari kaydedin, JSON zamanlarini guncelleyin, tekrar calistirin.
