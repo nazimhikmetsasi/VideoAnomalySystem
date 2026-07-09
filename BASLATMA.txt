@@ -21,6 +21,19 @@ Alternatif (dogrudan PowerShell):
 
 Kontrol:
   http://localhost:8000/health
-  http://localhost:5173
+  http://localhost:5173          (yerel dev)
+  http://localhost:3000          (Docker prod frontend)
+
+Docker (tam stack):
+  .\docker-up.bat
+  .\docker-down.bat
+  .\docker-infra.bat             (sadece Kafka/DB)
+  Detay: DOCKER.txt
+
+Opsiyonel (Asama 6):
+  .\run_rtsp.bat           IP kamera (RTSP)
+  .\run_finetune.bat       YOLO ozel egitim
+  Detay: OPSIYONEL_OZELLIKLER.txt
+  CI: GitHub Actions (.github/workflows/ci.yml)
 
 Not: CMD (Komut Istemi) icin .\ gerekmez: start_all.bat yeterli.

@@ -13,6 +13,11 @@ COPY backend/ ./backend/
 COPY config/ ./config/
 
 ENV PYTHONPATH=/app/backend
+ENV ZONE_CONFIG_PATH=/app/config/zones.json
 WORKDIR /app/backend
 
-CMD ["python", "main_capture.py"]
+RUN mkdir -p /app/logs
+
+EXPOSE 8000
+
+CMD ["python", "main_api.py"]

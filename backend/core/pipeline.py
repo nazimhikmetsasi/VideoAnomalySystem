@@ -16,6 +16,7 @@ from core.analyzer import AnomalyAnalyzer
 from core.visualizer import draw_tracks, draw_pose, draw_zones, draw_anomaly_alert
 from core.notifier import notify_api
 from core.logging_config import setup_logging
+from core.video_source import open_video_capture, describe_source
 
 logger = setup_logging('video_pipeline', 'pipeline.log')
 
@@ -34,12 +35,14 @@ def on_send_error(exception):
 class VideoKafkaProducer:
     def __init__(self, source=None, topic=None, kafka_enabled=None):
         camera_source = source if source is not None else os.getenv('CAMERA_SOURCE', 0)
-        self.cap = cv2.VideoCapture(int(camera_source))
+        self.cap, self._source_desc = open_video_capture(camera_source)
         if not self.cap.isOpened():
+            resolved = self._source_desc
             raise RuntimeError(
-                f"Kamera acilamadi (CAMERA_SOURCE={camera_source}). "
-                f".env dosyasinda CAMERA_SOURCE=1 deneyin."
+                f"Video kaynagi acilamadi ({describe_source(resolved)}). "
+                f"Webcam: CAMERA_SOURCE=0 | RTSP: rtsp://ip:554/stream"
             )
+        logger.info(f"Video kaynagi: {describe_source(self._source_desc)}")
 
         self.topic = topic or os.getenv('KAFKA_TOPIC', 'video-stream')
         self.anomaly_topic = os.getenv('KAFKA_ANOMALY_TOPIC', 'anomaly-events')

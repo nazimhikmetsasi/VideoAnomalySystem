@@ -1,0 +1,68 @@
+MCBU — Docker Orchestration (Asama 5)
+=====================================
+
+MODLAR
+  1) Sadece altyapi     docker-infra.bat
+  2) Tam stack (onerilen) docker-up.bat
+  3) Hibrit (en pratik)  docker-infra + yerel run_kamera.bat
+
+TAM STACK
+  .\docker-up.bat
+
+  Baslatir:
+    - Zookeeper + Kafka (9092)
+    - PostgreSQL (5432)
+    - MongoDB (27017)
+    - API (8000)
+    - Stream processor (sliding_window)
+    - Frontend (3000 — nginx prod build)
+
+  Kontrol:
+    http://localhost:3000      Dashboard
+    http://localhost:8000/health
+
+DURDURMA
+  .\docker-down.bat
+
+HIBRIT MOD (Windows webcam icin onerilen)
+  1. .\docker-up.bat           API + Kafka + DB + Dashboard
+  2. .\run_kamera.bat          Kamera yerelde (Docker webcam sorunlu)
+  .env icinde:
+     KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
+     API_NOTIFY_URL=http://127.0.0.1:8000/api/internal/alert
+
+KAMERA DOCKER ICINDE (opsiyonel, Linux/webcam destegi gerekir)
+  docker compose --profile capture up -d capture
+
+PROFILLER
+  (varsayilan)  zookeeper, kafka, postgres, mongodb
+  --profile full     api, stream-processor, frontend
+  --profile capture  capture (kamera pipeline)
+
+ORTAM DEGISKENLERI
+  docker-compose.yml icinde x-backend-env tanimli.
+  .env dosyasi varsa api servisine eklenir (GEMINI_API_KEY vb.).
+
+VOLUMES
+  postgres_data   PostgreSQL kalici veri
+  mongo_data      MongoDB kalici veri
+  app_logs        Uygulama loglari
+  model_cache     YOLO model onbellegi (capture profili)
+
+ILK CALISTIRMA
+  - docker build 2-5 dk surebilir
+  - YOLO modelleri ilk kamera calistirmada indirilir
+
+SORUN GIDerme
+  | Sorun              | Cozum                              |
+  |--------------------|------------------------------------|
+  | Port 8000 mesgul   | run_api.bat kapat veya port degistir|
+  | Kafka unhealthy    | docker logs mcbu-kafka             |
+  | API unhealthy      | docker logs mcbu-api               |
+  | Dashboard acilmiyor| docker logs mcbu-frontend          |
+  | Build cok yavas    | .dockerignore kontrol              |
+
+MANUEL KOMUTLAR
+  docker compose ps
+  docker compose logs -f api
+  docker compose --profile full up -d --build

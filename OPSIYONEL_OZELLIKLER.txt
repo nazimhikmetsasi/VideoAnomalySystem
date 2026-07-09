@@ -1,0 +1,69 @@
+Opsiyonel Ozellikler (Asama 6) — Ne Ise Yarar?
+==============================================
+
+1) CI (Continuous Integration)
+   NE IS E YARAR:
+   - GitHub'a her push/PR'da otomatik test calisir
+   - Kod bozulmadigini dogrular (pytest + frontend build)
+   - Tez/juri icin "profesyonel yazilim sureci" kaniti
+
+   DOSYA: .github/workflows/ci.yml
+
+   Ne test eder:
+   - Anomali metrikleri, LLM, sliding window, RTSP parser
+   - React dashboard build
+
+   GitHub'da Actions sekmesinden sonuclari gorebilirsiniz.
+
+
+2) FINE-TUNE (YOLO egitimi)
+   NE IS E YARAR:
+   - Varsayilan yolov8n.pt yerine KENDI ortaminiza ozel model
+   - Okul/koridor/kamera acisina gore kisi tespiti iyilestirilir
+   - Pilot mAP degerlerini yukari cikarir (tez tablosu)
+
+   GEREKSINIM:
+   - datasets/pilot/detection/images/  (JPG kareler)
+   - datasets/pilot/detection/labels/  (YOLO .txt etiketler)
+   - dataset.yaml (hazir)
+
+   CALISTIRMA:
+   .\run_finetune.bat
+
+   Egitim sonrasi .env:
+   YOLO_MODEL_PATH=runs/detect/pilot_person/weights/best.pt
+
+   NOT: GPU varsa cok daha hizli. Veri yoksa once etiketleme gerekir.
+
+
+3) RTSP (IP kamera / NVR akisi)
+   NE IS E YARAR:
+   - USB webcam yerine gercek guvenlik kamerasi baglantisi
+   - Uzak NVR/DVR'den canli goruntu cekme
+   - Gercek gozetim senaryosuna yakin demo
+
+   .env ORNEGI:
+   CAMERA_INPUT_TYPE=rtsp
+   CAMERA_SOURCE=rtsp://admin:sifre@192.168.1.64:554/stream1
+   RTSP_BUFFER_SIZE=1
+
+   CALISTIRMA:
+   .\run_rtsp.bat          (kurulum bilgisi)
+   .\run_kamera.bat        (pipeline baslat)
+
+   AUTO MOD (varsayilan):
+   CAMERA_SOURCE=0              -> webcam
+   CAMERA_SOURCE=rtsp://...     -> otomatik RTSP
+   CAMERA_SOURCE=video.mp4      -> dosyadan okuma
+
+   NOT: RTSP gecikmesi aga bagli. Buffer=1 dusuk gecikme icin onerilir.
+
+
+OZET TABLO
+  | Ozellik    | Ne zaman kullanilir              |
+  |------------|----------------------------------|
+  | CI         | Her gelistirmede, GitHub push    |
+  | Fine-tune  | Kendi veriniz + daha iyi mAP     |
+  | RTSP       | IP kamera ile gercek demo        |
+
+Hepsi opsiyonel — sistem webcam + varsayilan YOLO ile de calisir.

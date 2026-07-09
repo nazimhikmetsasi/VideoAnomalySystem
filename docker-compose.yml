@@ -1,14 +1,44 @@
-version: '3.8'
+x-backend-env: &backend-env
+  KAFKA_ENABLED: "true"
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KAFKA_TOPIC: video-stream
+  KAFKA_ANOMALY_TOPIC: anomaly-events
+  KAFKA_VERIFIED_TOPIC: verified-anomalies
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: mcbu_user
+  POSTGRES_PASSWORD: anomaly_password
+  POSTGRES_DB: anomaly_db
+  DATABASE_URL: postgresql://mcbu_user:anomaly_password@postgres:5432/anomaly_db
+  MONGO_HOST: mongodb
+  MONGO_PORT: 27017
+  MONGO_DB: anomaly_metrics
+  API_HOST: 0.0.0.0
+  API_PORT: 8000
+  STREAM_MODE: python
+  SPARK_MIN_EVENTS: "2"
+  SPARK_WINDOW_SEC: "10"
+  USE_GPU: "false"
+  ZONE_CONFIG_PATH: /app/config/zones.json
+  FRAME_WIDTH: "640"
+  FRAME_HEIGHT: "480"
+  LOG_LEVEL: INFO
 
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
+    container_name: mcbu-zookeeper
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - anomaly-net
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    container_name: mcbu-kafka
+    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
@@ -20,9 +50,19 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - anomaly-net
 
   postgres:
     image: postgres:15
+    container_name: mcbu-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: mcbu_user
       POSTGRES_PASSWORD: anomaly_password
@@ -30,40 +70,47 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcbu_user -d anomaly_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - anomaly-net
 
   mongodb:
     image: mongo:6.0
+    container_name: mcbu-mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
-      - ./mongo_data:/data/db
-
-  capture:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    depends_on:
-      - kafka
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CAMERA_SOURCE: 0
-    volumes:
-      - ./config:/app/config
-    profiles:
-      - full
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - anomaly-net
 
   stream-processor:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    command: ["python", "main_stream.py"]
+    container_name: mcbu-stream
+    restart: unless-stopped
+    command: ["python", "main_stream.py", "python"]
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      STREAM_MODE: python
-      SPARK_MIN_EVENTS: 2
+      <<: *backend-env
+    volumes:
+      - ./config:/app/config:ro
+      - app_logs:/app/logs
     profiles:
       - full
 
@@ -71,18 +118,32 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    container_name: mcbu-api
+    restart: unless-stopped
     command: ["python", "main_api.py"]
     depends_on:
-      - kafka
-      - postgres
-      - mongodb
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      DATABASE_URL: postgresql://mcbu_user:anomaly_password@postgres:5432/anomaly_db
-      MONGO_HOST: mongodb
-      MONGO_PORT: 27017
+      <<: *backend-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    volumes:
+      - ./config:/app/config:ro
+      - app_logs:/app/logs
+      - ./results:/app/results
     profiles:
       - full
 
@@ -90,9 +151,46 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    container_name: mcbu-frontend
+    restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "3000:80"
     profiles:
       - full
+
+  capture:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mcbu-capture
+    restart: unless-stopped
+    command: ["python", "main_capture.py"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      CAMERA_SOURCE: "0"
+      API_NOTIFY_URL: http://api:8000/api/internal/alert
+      KAFKA_ENABLED: "true"
+    volumes:
+      - ./config:/app/config:ro
+      - app_logs:/app/logs
+      - model_cache:/root/.cache
+    profiles:
+      - capture
+
+networks:
+  anomaly-net:
+    name: mcbu-anomaly-net
+
+volumes:
+  postgres_data:
+  mongo_data:
+  app_logs:
+  model_cache:
