@@ -20,4 +20,19 @@ def test_llm_template_report():
     }
     report = reporter.generate_report(event)
     assert 'cam_01' in report
-    assert 'dusme' in report.lower() or 'dü' in report.lower() or '5' in report
+    assert 'dusme' in report.lower() or '5' in report
+
+
+def test_llm_status():
+    reporter = LLMReporter()
+    status = reporter.status()
+    assert status['provider'] in ('gemini', 'openai')
+    assert status['mode'] in ('llm', 'template')
+
+
+def test_llm_test_connection():
+    reporter = LLMReporter()
+    result = reporter.test_connection()
+    assert 'ok' in result
+    assert 'sample_report' in result
+    assert len(result['sample_report']) > 10

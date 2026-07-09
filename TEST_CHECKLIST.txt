@@ -1,0 +1,44 @@
+Video Anomaly System — Test Kontrol Listesi (Asama 1: Stabilizasyon)
+======================================================================
+
+ON HAZIRLIK
+[ ] venv kurulu: venv\Scripts\python.exe mevcut
+[ ] .env dosyasi proje kokunde (yoksa .env.example kopyala)
+[ ] Docker Desktop acik (Kafka/DB icin — opsiyonel, API modu da calisir)
+
+BASLATMA (PowerShell'de basina .\ yazin)
+[ ] .\run_api.bat veya .\start_all.bat calistir
+[ ] http://localhost:8000/health -> {"status":"ok"} donuyor
+[ ] .\run_dashboard.bat -> http://localhost:5173 aciliyor
+[ ] scripts\check_system.ps1 tum kritik portlari gosteriyor
+
+DASHBOARD TESTI
+[ ] Panelde "Test Bildirimi Gonder" butonu calisiyor
+[ ] Bildirim panelde gorunuyor (WebSocket veya 3sn polling)
+[ ] Tarayici konsolunda WebSocket hatasi yok
+
+KAMERA TESTI
+[ ] .\run_kamera.bat calisiyor, OpenCV penceresi aciliyor
+[ ] Kamera acilmazsa .env icinde CAMERA_SOURCE=0 veya 1 dene
+[ ] Kisi tespiti: bbox + track ID gorunuyor
+[ ] Kosma / dusme / yasakli bolge testlerinde bildirim geliyor
+[ ] Ayni anomali 12 sn icinde tekrar spam yapmiyor (cooldown)
+
+KAFKA / API MODU
+[ ] Kafka acikken: pipeline.log'da "Kafka Producer baslatildi"
+[ ] Kafka kapali veya Docker yokken: pipeline calismaya devam ediyor
+[ ] Kafka kapali iken API bildirimi calisiyor (notify_api)
+
+LOG ROTASYONU
+[ ] logs/pipeline.log olusuyor
+[ ] logs/api.log olusuyor
+[ ] Log dosyasi 10MB'i gecince pipeline.log.1 olusuyor (RotatingFileHandler)
+
+DURDURMA
+[ ] .\stop_all.bat tum python/node sureclerini kapatiyor
+[ ] docker-compose down ile konteynerler duruyor
+
+BILINEN SINIRLAMALAR
+- MediaPipe kullanilmiyor; pose = YOLOv8-pose
+- Gemini LLM icin GEMINI_API_KEY gerekli (Asama 2)
+- Spark yerine sliding_window.py yerel fallback

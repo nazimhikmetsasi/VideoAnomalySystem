@@ -1,0 +1,26 @@
+Video Anomaly System — Hizli Baslatma (PowerShell)
+==================================================
+
+PowerShell'de mevcut klasordeki .bat dosyalari icin basina .\ yazmak ZORUNLU:
+
+  .\start_all.bat          Tum servisleri baslat
+  .\stop_all.bat           Tum servisleri durdur
+
+Ayri ayri baslatmak icin:
+
+  .\run_api.bat            API + WebSocket (port 8000)
+  .\run_dashboard.bat      React panel (port 5173)
+  .\run_kamera.bat         Kamera pipeline
+  .\run_stream.bat         Kafka anomali suzgeci (Docker gerekli)
+
+Alternatif (dogrudan PowerShell):
+
+  .\start_all.ps1
+  .\stop_all.ps1
+  .\scripts\check_system.ps1
+
+Kontrol:
+  http://localhost:8000/health
+  http://localhost:5173
+
+Not: CMD (Komut Istemi) icin .\ gerekmez: start_all.bat yeterli.

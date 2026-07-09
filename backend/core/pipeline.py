@@ -1,5 +1,4 @@
 import os
-import logging
 import json
 import time
 import threading
@@ -16,24 +15,9 @@ from core.kinematics import KinematicsEngine
 from core.analyzer import AnomalyAnalyzer
 from core.visualizer import draw_tracks, draw_pose, draw_zones, draw_anomaly_alert
 from core.notifier import notify_api
+from core.logging_config import setup_logging
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
-
-LOG_FORMAT = '[%(levelname)s] %(asctime)s - %(message)s'
-DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    datefmt=DATE_FORMAT,
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join(LOG_DIR, 'pipeline.log'), encoding='utf-8')
-    ]
-)
-
-logger = logging.getLogger('video_pipeline')
+logger = setup_logging('video_pipeline', 'pipeline.log')
 
 
 def on_send_success(record_metadata):
@@ -51,6 +35,11 @@ class VideoKafkaProducer:
     def __init__(self, source=None, topic=None, kafka_enabled=None):
         camera_source = source if source is not None else os.getenv('CAMERA_SOURCE', 0)
         self.cap = cv2.VideoCapture(int(camera_source))
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                f"Kamera acilamadi (CAMERA_SOURCE={camera_source}). "
+                f".env dosyasinda CAMERA_SOURCE=1 deneyin."
+            )
 
         self.topic = topic or os.getenv('KAFKA_TOPIC', 'video-stream')
         self.anomaly_topic = os.getenv('KAFKA_ANOMALY_TOPIC', 'anomaly-events')
@@ -87,8 +76,9 @@ class VideoKafkaProducer:
                     f"anomaly={self.anomaly_topic} | kamera={self.camera_id}"
                 )
             except Exception as e:
-                logger.error(f"Kafka Producer baslatilamadi: {e}")
-                raise
+                logger.warning(f"Kafka baglanamadi — API bildirim modu aktif: {e}")
+                self.kafka_enabled = False
+                self.producer = None
         else:
             logger.warning("Kafka devre disi — sadece yerel kamera testi modu.")
 

@@ -1,0 +1,44 @@
+Gemini LLM Kurulumu (Asama 2)
+==============================
+
+1) API anahtari al
+   - https://aistudio.google.com/apikey adresine git
+   - Google hesabinla giris yap
+   - "Create API key" ile yeni anahtar olustur
+   - Anahtari kopyala (AIza... ile baslar)
+
+2) .env dosyasina ekle
+   Proje kokundeki .env dosyasini ac:
+
+   LLM_PROVIDER=gemini
+   GEMINI_API_KEY=AIza...buraya_yapistir
+   LLM_MODEL=gemini-2.0-flash
+
+3) API'yi yeniden baslat
+   Anahtar degisikligi icin run_api.bat penceresini kapatip tekrar ac:
+
+   .\run_api.bat
+
+4) Test et
+
+   a) Komut satiri:
+      .\run_llm_test.bat
+
+   b) Tarayici:
+      http://localhost:8000/api/llm/test
+
+   c) Dashboard:
+      Sag ustte "Gemini AI Aktif" yazmali (yesil)
+      "Test Bildirimi Gonder" — rapor metni sablon degil, dogal Turkce olmali
+
+5) Sorun giderme
+
+   | Belirti                        | Cozum                              |
+   |--------------------------------|------------------------------------|
+   | "Sablon Rapor" gorunuyor       | GEMINI_API_KEY bos veya API restart|
+   | HTTP 400 / API key invalid     | Anahtari yeniden olustur           |
+   | HTTP 429                       | Kota asildi — biraz bekle          |
+   | HTTP 403                       | Generative Language API acik mi?   |
+
+Not: Anahtar olmadan sistem calisir — sablon rapor kullanilir.
+     Tez/demo icin Gemini ile daha okunakli bildirimler uretilir.

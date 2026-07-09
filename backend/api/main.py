@@ -1,7 +1,6 @@
 import os
 import json
 import asyncio
-import logging
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -16,9 +15,9 @@ from api.websocket_manager import manager
 from database.postgres import PostgresRepository
 from database.mongo import MongoRepository
 from llm.reporter import LLMReporter
+from core.logging_config import setup_logging
 
-logger = logging.getLogger('api')
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logger = setup_logging('api', 'api.log')
 
 postgres_repo = PostgresRepository()
 mongo_repo = MongoRepository()
@@ -108,8 +107,13 @@ def _handle_verified_anomaly(event: dict):
 async def lifespan(app: FastAPI):
     global _consumer_thread, _main_loop
     _main_loop = asyncio.get_running_loop()
-    _consumer_thread = threading.Thread(target=_kafka_consumer_loop, daemon=True)
-    _consumer_thread.start()
+    kafka_enabled = os.getenv('KAFKA_ENABLED', 'true').lower() == 'true'
+    if kafka_enabled:
+        _consumer_thread = threading.Thread(target=_kafka_consumer_loop, daemon=True)
+        _consumer_thread.start()
+        logger.info("Kafka consumer thread baslatildi")
+    else:
+        logger.info("Kafka devre disi — sadece /api/internal/alert modu")
     yield
     _stop_event.set()
 
@@ -131,7 +135,22 @@ app.add_middleware(
 
 @app.get('/health')
 def health():
-    return {'status': 'ok'}
+    llm = llm_reporter.status()
+    return {
+        'status': 'ok',
+        'llm': llm,
+    }
+
+
+@app.get('/api/llm/status')
+def llm_status():
+    return llm_reporter.status()
+
+
+@app.get('/api/llm/test')
+@app.post('/api/llm/test')
+def llm_test():
+    return llm_reporter.test_connection()
 
 
 @app.get('/api/anomalies')
@@ -154,7 +173,11 @@ async def test_alert():
         'track_id': 99,
         'anomaly_type': 'RUN',
         'confidence_score': 0.95,
-        'metrics': {},
+        'metrics': {
+            'horizontal_velocity': 102.5,
+            'vertical_velocity': 8.0,
+            'spine_angle': 15.0,
+        },
         'timestamp': time.time()
     }
     payload = await _push_alert(event)

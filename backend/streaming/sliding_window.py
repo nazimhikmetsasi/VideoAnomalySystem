@@ -4,15 +4,15 @@ Spark ortaminda calistirilmadiginda yerel Python fallback olarak kullanilir.
 """
 import os
 import json
-import logging
 import time
 from collections import defaultdict, deque
 from config import load_env
 load_env()
 
 from kafka import KafkaConsumer, KafkaProducer
+from core.logging_config import setup_logging
 
-logger = logging.getLogger('spark_processor')
+logger = setup_logging('spark_processor', 'stream.log')
 
 WINDOW_SEC = float(os.getenv('SPARK_WINDOW_SEC', 10))
 MIN_EVENTS = int(os.getenv('SPARK_MIN_EVENTS', 2))
@@ -84,5 +84,4 @@ def run_sliding_window_processor():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
     run_sliding_window_processor()

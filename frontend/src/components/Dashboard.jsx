@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [connected, setConnected] = useState(false)
   const [popup, setPopup] = useState(null)
   const [testMsg, setTestMsg] = useState('')
+  const [llmStatus, setLlmStatus] = useState(null)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const lastDbIdRef = useRef(0)
@@ -108,8 +109,18 @@ export default function Dashboard() {
     }
   }, [fetchHistory])
 
+  const fetchLlmStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/llm/status`)
+      if (res.ok) setLlmStatus(await res.json())
+    } catch (e) {
+      console.error('LLM durumu alinamadi', e)
+    }
+  }, [])
+
   useEffect(() => {
     fetchHistory()
+    fetchLlmStatus()
     connectWs()
     const poll = setInterval(fetchHistory, 3000)
     return () => {
@@ -117,7 +128,7 @@ export default function Dashboard() {
       clearTimeout(reconnectRef.current)
       wsRef.current?.close()
     }
-  }, [fetchHistory, connectWs])
+  }, [fetchHistory, fetchLlmStatus, connectWs])
 
   const sendTestAlert = async () => {
     try {
@@ -131,7 +142,7 @@ export default function Dashboard() {
       }
       fetchHistory()
     } catch (e) {
-      setTestMsg('API baglantisi yok — run_api.bat calistir.')
+      setTestMsg('API baglantisi yok — .\\run_api.bat calistir (PowerShell)')
     }
   }
 
@@ -149,6 +160,13 @@ export default function Dashboard() {
           >
             Test Bildirimi Gonder
           </button>
+          {llmStatus && (
+            <div className={`px-3 py-1 rounded-full text-sm ${llmStatus.mode === 'llm' ? 'bg-emerald-700' : 'bg-slate-600'}`}
+              title={llmStatus.mode === 'llm' ? `${llmStatus.provider} / ${llmStatus.model}` : 'GEMINI_API_KEY tanimli degil — sablon rapor'}
+            >
+              {llmStatus.mode === 'llm' ? 'Gemini AI Aktif' : 'Sablon Rapor'}
+            </div>
+          )}
           <div className={`px-3 py-1 rounded-full text-sm ${connected ? 'bg-green-700' : 'bg-red-700'}`}>
             {connected ? 'WebSocket Bagli' : 'Baglanti Yok (polling aktif)'}
           </div>
