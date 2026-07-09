@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # 1. KATMAN: Mesaj Kuyruğu (Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     environment:
@@ -9,7 +8,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
-    image: confluentinc/cp-kafka:7..0
+    image: confluentinc/cp-kafka:7.5.0
     depends_on:
       - zookeeper
     ports:
@@ -19,9 +18,9 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  # 2. KATMAN: İlişkisel Veritabanı (PostgreSQL)
   postgres:
     image: postgres:15
     environment:
@@ -33,10 +32,66 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
-  # 3. KATMAN: Doküman Tabanlı Veritabanı (MongoDB)
   mongodb:
     image: mongo:6.0
     ports:
       - "27017:27017"
     volumes:
       - ./mongo_data:/data/db
+
+  capture:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      CAMERA_SOURCE: 0
+    volumes:
+      - ./config:/app/config
+    profiles:
+      - full
+
+  stream-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "main_stream.py"]
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPARK_MIN_EVENTS: 1
+    profiles:
+      - full
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "main_api.py"]
+    depends_on:
+      - kafka
+      - postgres
+      - mongodb
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      DATABASE_URL: postgresql://mcbu_user:anomaly_password@postgres:5432/anomaly_db
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+    profiles:
+      - full
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    profiles:
+      - full

@@ -5,5 +5,14 @@ __pycache__/
 data/test_videos/
 *.pt
 *.trt
+*.task
+backend/models/
 postgres_data/
 mongo_data/
+frontend/node_modules/
+frontend/dist/
+.pytest_cache/
+logs/
+*.log
+yolov8n.pt
+yolov8n-pose.pt
