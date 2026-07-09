@@ -21,7 +21,7 @@ class PoseEstimator:
         logger.info(f"YOLOv8-pose yukleniyor: {model_path} | device={device}")
         self.model = YOLO(model_path)
         self.model.to(device)
-        self.conf = float(os.getenv('POSE_MIN_DETECTION_CONF', 0.5))
+        self.conf = float(os.getenv('POSE_MIN_DETECTION_CONF', 0.25))
         logger.info("Pose estimator baslatildi.")
 
     def extract(self, frame: np.ndarray, bbox: list) -> dict | None:
@@ -64,7 +64,7 @@ class PoseEstimator:
                 'visibility': vis
             })
 
-        if raw[LEFT_HIP]['visibility'] < 0.3 or raw[RIGHT_HIP]['visibility'] < 0.3:
+        if raw[LEFT_HIP]['visibility'] < 0.2 or raw[RIGHT_HIP]['visibility'] < 0.2:
             return None
 
         lh = raw[LEFT_HIP]

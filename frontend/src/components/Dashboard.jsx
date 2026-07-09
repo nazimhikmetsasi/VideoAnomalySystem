@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { apiFetch } from '../api'
+import MetricsPanel from './MetricsPanel'
 
 const ANOMALY_COLORS = {
   FALL: 'bg-red-600',
@@ -30,20 +32,21 @@ function showAlert(data, setAlerts, setPopup) {
   setTimeout(() => setPopup(null), 8000)
 }
 
-export default function Dashboard() {
+export default function Dashboard({ user, onLogout }) {
   const [alerts, setAlerts] = useState([])
   const [history, setHistory] = useState([])
   const [connected, setConnected] = useState(false)
   const [popup, setPopup] = useState(null)
   const [testMsg, setTestMsg] = useState('')
   const [llmStatus, setLlmStatus] = useState(null)
+  const [cameras, setCameras] = useState([])
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const lastDbIdRef = useRef(0)
 
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${apiBase}/api/anomalies?limit=30`)
+      const res = await apiFetch('/api/anomalies?limit=30')
       if (!res.ok) return
       const data = await res.json()
       const items = data.items || []
@@ -111,16 +114,29 @@ export default function Dashboard() {
 
   const fetchLlmStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${apiBase}/api/llm/status`)
+      const res = await apiFetch('/api/llm/status')
       if (res.ok) setLlmStatus(await res.json())
     } catch (e) {
       console.error('LLM durumu alinamadi', e)
     }
   }, [])
 
+  const fetchCameras = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/cameras')
+      if (res.ok) {
+        const data = await res.json()
+        setCameras(data.cameras || [])
+      }
+    } catch (e) {
+      console.error('Kamera listesi alinamadi', e)
+    }
+  }, [])
+
   useEffect(() => {
     fetchHistory()
     fetchLlmStatus()
+    fetchCameras()
     connectWs()
     const poll = setInterval(fetchHistory, 3000)
     return () => {
@@ -128,11 +144,11 @@ export default function Dashboard() {
       clearTimeout(reconnectRef.current)
       wsRef.current?.close()
     }
-  }, [fetchHistory, fetchLlmStatus, connectWs])
+  }, [fetchHistory, fetchLlmStatus, fetchCameras, connectWs])
 
   const sendTestAlert = async () => {
     try {
-      const res = await fetch(`${apiBase}/api/test-alert`)
+      const res = await apiFetch('/api/test-alert', { method: 'POST' })
       const data = await res.json()
       if (data.alert) {
         showAlert(data.alert, setAlerts, setPopup)
@@ -153,12 +169,18 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold">MCBU Video Anomali Tespit Paneli</h1>
           <p className="text-slate-400 text-sm">Video Tabanli Anomali Tespiti ve Davranis Analizi</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={sendTestAlert}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
-          >
-            Test Bildirimi Gonder
+        <div className="flex items-center gap-3 flex-wrap">
+          {user?.role === 'admin' && (
+            <button
+              onClick={sendTestAlert}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
+            >
+              Test Bildirimi Gonder
+            </button>
+          )}
+          <span className="text-sm text-slate-400">{user?.username} ({user?.role})</span>
+          <button onClick={onLogout} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm">
+            Cikis
           </button>
           {llmStatus && (
             <div className={`px-3 py-1 rounded-full text-sm ${llmStatus.mode === 'llm' ? 'bg-emerald-700' : 'bg-slate-600'}`}
@@ -176,6 +198,18 @@ export default function Dashboard() {
       {testMsg && (
         <div className="mb-4 p-3 bg-blue-900/50 border border-blue-500 rounded-lg text-sm">
           {testMsg}
+        </div>
+      )}
+
+      <MetricsPanel />
+
+      {cameras.length > 0 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {cameras.map((c) => (
+            <span key={c.id} className="px-3 py-1 bg-slate-800 rounded-full text-xs text-slate-300">
+              {c.name || c.id} {c.enabled === false ? '(kapali)' : ''}
+            </span>
+          ))}
         </div>
       )}
 

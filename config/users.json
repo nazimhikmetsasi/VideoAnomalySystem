@@ -1,0 +1,15 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "comment": "Production icin password yerine password_hash kullanin (SHA256+AUTH_SECRET)"
+    },
+    {
+      "username": "viewer",
+      "password": "viewer123",
+      "role": "viewer"
+    }
+  ]
+}

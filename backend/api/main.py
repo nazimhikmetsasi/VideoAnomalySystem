@@ -7,15 +7,22 @@ from contextlib import asynccontextmanager
 from config import load_env
 load_env()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from kafka import KafkaConsumer
+from pydantic import BaseModel
 
 from api.websocket_manager import manager
+from api.auth import (
+    authenticate_user, create_access_token, get_current_user, require_role, auth_enabled,
+)
+from api.training import get_training_status, start_training_async, latest_model_info
 from database.postgres import PostgresRepository
 from database.mongo import MongoRepository
 from llm.reporter import LLMReporter
 from core.logging_config import setup_logging
+from core.push_notifier import send_push_alert
+from core.camera_config import load_cameras_config
 
 logger = setup_logging('api', 'api.log')
 
@@ -54,7 +61,13 @@ async def _push_alert(event: dict) -> dict:
         logger.warning("WebSocket loop hazir degil")
 
     logger.info(f"Bildirim yayinlandi | {event['anomaly_type']}")
+    send_push_alert(payload)
     return payload
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 _consumer_thread = None
 _stop_event = threading.Event()
@@ -139,22 +152,52 @@ def health():
     return {
         'status': 'ok',
         'llm': llm,
+        'auth_enabled': auth_enabled(),
     }
 
 
+@app.post('/api/auth/login')
+def login(body: LoginRequest):
+    user = authenticate_user(body.username, body.password)
+    if not user:
+        return {'ok': False, 'message': 'Kullanici adi veya sifre hatali'}
+    token = create_access_token(user)
+    return {'ok': True, 'token': token, 'username': user['username'], 'role': user['role']}
+
+
+@app.get('/api/auth/me')
+def auth_me(user: dict = Depends(get_current_user)):
+    return {'username': user['username'], 'role': user['role']}
+
+
+@app.get('/api/cameras')
+def list_cameras(user: dict = Depends(get_current_user)):
+    return {'cameras': load_cameras_config()}
+
+
+@app.get('/api/training/status')
+def training_status(user: dict = Depends(require_role('admin'))):
+    return {**get_training_status(), **latest_model_info()}
+
+
+@app.post('/api/training/start')
+def training_start(user: dict = Depends(require_role('admin'))):
+    return start_training_async()
+
+
 @app.get('/api/llm/status')
-def llm_status():
+def llm_status(user: dict = Depends(get_current_user)):
     return llm_reporter.status()
 
 
 @app.get('/api/llm/test')
 @app.post('/api/llm/test')
-def llm_test():
+def llm_test(user: dict = Depends(require_role('admin'))):
     return llm_reporter.test_connection()
 
 
 @app.get('/api/evaluation/latest')
-def evaluation_latest():
+def evaluation_latest(user: dict = Depends(get_current_user)):
     root = os.path.join(os.path.dirname(__file__), '..', '..')
     latest = os.path.normpath(os.path.join(root, 'results', 'latest.json'))
     if not os.path.exists(latest):
@@ -165,7 +208,7 @@ def evaluation_latest():
 
 
 @app.get('/api/anomalies')
-def list_anomalies(limit: int = 50):
+def list_anomalies(limit: int = 50, user: dict = Depends(get_current_user)):
     return {'items': postgres_repo.list_recent(limit)}
 
 
@@ -178,7 +221,7 @@ async def internal_alert(event: dict):
 
 @app.get('/api/test-alert')
 @app.post('/api/test-alert')
-async def test_alert():
+async def test_alert(user: dict = Depends(require_role('admin'))):
     event = {
         'camera_id': 'cam_01',
         'track_id': 99,

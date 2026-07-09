@@ -50,6 +50,22 @@ class KinematicsEngine:
 
         vy = (curr['hip_y'] - prev['hip_y']) / dt
         vx = (curr['hip_x'] - prev['hip_x']) / dt
+
+        # Son birkaç kare ortalamasi — tek kare gürültüsünü azaltir
+        n = min(len(buf) - 1, 5)
+        vxs, vys = [], []
+        for i in range(1, n + 1):
+            c = buf[-i]
+            p = buf[-i - 1]
+            dt_i = c['timestamp'] - p['timestamp']
+            if dt_i <= 0:
+                continue
+            vxs.append((c['hip_x'] - p['hip_x']) / dt_i)
+            vys.append((c['hip_y'] - p['hip_y']) / dt_i)
+        if vxs:
+            vx = float(np.mean(vxs))
+            vy = float(np.mean(vys))
+
         metrics['vertical_velocity'] = round(vy, 2)
         metrics['horizontal_velocity'] = round(vx, 2)
 

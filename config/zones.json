@@ -1,5 +1,6 @@
 {
   "cam_01": [
-    [[200, 150], [440, 150], [440, 350], [200, 350]]
-  ]
+    [[480, 300], [620, 300], [620, 460], [480, 460]]
+  ],
+  "_aciklama": "Kucuk yasakli bolge: sag-alt kose. Ortada durmak ihlal sayilmaz."
 }

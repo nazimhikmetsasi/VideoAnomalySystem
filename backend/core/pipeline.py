@@ -13,7 +13,9 @@ from core.tracker import PersonTracker
 from core.pose import PoseEstimator
 from core.kinematics import KinematicsEngine
 from core.analyzer import AnomalyAnalyzer
-from core.visualizer import draw_tracks, draw_pose, draw_zones, draw_anomaly_alert
+from core.visualizer import (
+    draw_tracks, draw_pose, draw_zones, draw_anomaly_alert, draw_kinematics_debug
+)
 from core.notifier import notify_api
 from core.logging_config import setup_logging
 from core.video_source import open_video_capture, describe_source
@@ -33,7 +35,7 @@ def on_send_error(exception):
 
 
 class VideoKafkaProducer:
-    def __init__(self, source=None, topic=None, kafka_enabled=None):
+    def __init__(self, source=None, camera_id=None, topic=None, kafka_enabled=None, show_window=True):
         camera_source = source if source is not None else os.getenv('CAMERA_SOURCE', 0)
         self.cap, self._source_desc = open_video_capture(camera_source)
         if not self.cap.isOpened():
@@ -46,7 +48,10 @@ class VideoKafkaProducer:
 
         self.topic = topic or os.getenv('KAFKA_TOPIC', 'video-stream')
         self.anomaly_topic = os.getenv('KAFKA_ANOMALY_TOPIC', 'anomaly-events')
-        self.camera_id = os.getenv('CAMERA_ID', 'cam_01')
+        self.camera_id = camera_id or os.getenv('CAMERA_ID', 'cam_01')
+        self.window_title = f"MCBU - {self.camera_id}"
+        self.show_window = show_window
+        self.debug_kinematics = os.getenv('DEBUG_KINEMATICS', 'true').lower() == 'true'
         self.frame_width = int(os.getenv('FRAME_WIDTH', 640))
         self.frame_height = int(os.getenv('FRAME_HEIGHT', 480))
         self.target_fps = float(os.getenv('TARGET_FPS', 30))
@@ -154,6 +159,12 @@ class VideoKafkaProducer:
                     entry['metrics'] = metrics
                     entry['hip_center'] = pose_data['hip_center']
                     display = draw_pose(display, pose_data['raw_landmarks'], bbox)
+                    if self.debug_kinematics:
+                        display = draw_kinematics_debug(
+                            display, tid, metrics,
+                            self.analyzer.run_speed, self.analyzer.fall_vy,
+                            y_offset=55 + len(track_payload) * 70,
+                        )
                     anomaly = self.analyzer.analyze(
                         tid, metrics, pose_data['hip_center'], self.camera_id
                     )
@@ -172,8 +183,9 @@ class VideoKafkaProducer:
             self.kinematics.clear_stale(active_ids)
             self.analyzer.clear_tracks(active_ids)
 
-            cv2.imshow("MCBU - Anomali Tespit Sistemi", display)
-            cv2.waitKey(1)
+            if self.show_window:
+                cv2.imshow(self.window_title, display)
+                cv2.waitKey(1)
 
             if self.kafka_enabled and self.producer:
                 _, buffer = cv2.imencode('.jpg', frame)
@@ -207,7 +219,8 @@ class VideoKafkaProducer:
     def stop(self):
         self.stopped = True
         self.cap.release()
-        cv2.destroyAllWindows()
+        if self.show_window:
+            cv2.destroyWindow(self.window_title)
         self.pose_estimator.close()
         if self.producer:
             self.producer.flush()

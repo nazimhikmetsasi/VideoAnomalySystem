@@ -47,6 +47,32 @@ def draw_zones(frame: np.ndarray, zones: list) -> np.ndarray:
     return frame
 
 
+def draw_kinematics_debug(
+    frame: np.ndarray,
+    track_id: int,
+    metrics: dict,
+    run_threshold: float,
+    fall_threshold: float,
+    y_offset: int = 55,
+) -> np.ndarray:
+    """Canli hiz metriklerini ekrana yazar (DEBUG_KINEMATICS=true)."""
+    vx = metrics.get('horizontal_velocity', 0)
+    vy = metrics.get('vertical_velocity', 0)
+    spine = metrics.get('spine_angle', 90)
+    samples = metrics.get('sample_count', 0)
+    lines = [
+        f"ID:{track_id} | ornek:{samples}",
+        f"vx:{vx:+.0f} (kosma>={run_threshold:.0f})",
+        f"vy:{vy:+.0f} (dusme>={fall_threshold:.0f}) | omurga:{spine:.0f}",
+    ]
+    for i, line in enumerate(lines):
+        cv2.putText(
+            frame, line, (10, y_offset + i * 22),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (180, 255, 180), 2
+        )
+    return frame
+
+
 def draw_anomaly_alert(frame: np.ndarray, anomaly: dict) -> np.ndarray:
     """Anomali uyarisini ekrana yazar."""
     text = f"! {anomaly['anomaly_type']} | ID:{anomaly['track_id']} | {anomaly['confidence_score']:.2f}"

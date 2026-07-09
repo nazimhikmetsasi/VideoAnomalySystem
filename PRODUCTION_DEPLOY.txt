@@ -1,0 +1,56 @@
+Production Deploy — SSL, Domain, Sunucu (Asama 8)
+=================================================
+
+NE IS E YARAR
+  Sistemi internet uzerinden guvenli (HTTPS) erisimle yayinlar.
+  Universite sunucusu veya VPS uzerinde 7/24 calisir.
+
+GEREKSINIMLER
+  - Linux VPS veya sunucu (Ubuntu onerilir)
+  - Docker + Docker Compose
+  - Domain adi (ornek: anomali.mcbu.edu.tr)
+  - SSL sertifikasi (Let's Encrypt ucretsiz)
+
+HIZLI BASLATMA (sunucuda)
+  1. Projeyi sunucuya kopyala / git clone
+  2. .env dosyasini duzenle:
+     AUTH_SECRET=uzun-rastgele-metin
+     POSTGRES_PASSWORD=guclu-sifre
+     GEMINI_API_KEY=...
+     FCM_SERVER_KEY=... (mobil bildirim icin)
+  3. SSL sertifikasi al (Let's Encrypt):
+     certbot certonly --standalone -d anomali.mcbu.edu.tr
+  4. Sertifikalari kopyala:
+     deploy/certs/fullchain.pem
+     deploy/certs/privkey.pem
+  5. nginx.prod.conf icinde server_name guncelle
+  6. deploy\prod-up.bat veya:
+     cd deploy
+     docker compose -f docker-compose.prod.yml up -d --build
+
+ERISIM
+  https://anomali.mcbu.edu.tr        Dashboard
+  https://anomali.mcbu.edu.tr/health API saglik
+
+GUVENLIK KONTROL LISTESI
+  [ ] AUTH_SECRET degistirildi
+  [ ] config/users.json sifreleri degistirildi (password_hash kullan)
+  [ ] POSTGRES_PASSWORD guclu
+  [ ] Firewall: sadece 80, 443 acik
+  [ ] Kafka/Postgres portlari disari kapali (docker internal)
+
+MOBIL BILDIRIM (Firebase)
+  .env:
+    FCM_ENABLED=true
+    FCM_SERVER_KEY=AAAA...firebase server key
+    FCM_TOPIC=anomalies
+
+  Android uygulamasi FCM topic'e subscribe olur.
+
+COKLU KAMERA (production)
+  config/cameras.json — RTSP URL'leri
+  Sunucuda: docker compose --profile capture up -d
+  veya yerel/edge cihazda run_multi_kamera.bat
+
+DOMAIN DNS
+  A kaydi: anomali.mcbu.edu.tr -> sunucu IP

@@ -1,10 +1,13 @@
 Video Anomaly System — Hizli Baslatma (PowerShell)
 ==================================================
 
-PowerShell'de mevcut klasordeki .bat dosyalari icin basina .\ yazmak ZORUNLU:
+TEK KOMUT — HER SEYI AC:
+  .\start.bat              (veya .\start_all.bat)
 
-  .\start_all.bat          Tum servisleri baslat
-  .\stop_all.bat           Tum servisleri durdur
+TEK KOMUT — HER SEYI KAPAT:
+  .\stop.bat               (veya .\stop_all.bat)
+
+Giris: admin / admin123
 
 Ayri ayri baslatmak icin:
 

@@ -123,13 +123,18 @@ Start-Sleep -Seconds 3
 Write-Host "[5/5] Kamera pipeline (run_kamera.bat)..." -ForegroundColor Yellow
 Start-BatWindow "run_kamera.bat"
 
+Start-Sleep -Seconds 4
+Write-Host "      Tarayici aciliyor..." -ForegroundColor Gray
+Start-Process "http://localhost:5173"
+
 Write-Host ""
 Write-Host "=== Hazir ===" -ForegroundColor Green
 Write-Host "Dashboard : http://localhost:5173"
+Write-Host "Giris     : admin / admin123  (viewer: viewer123)"
 Write-Host "API       : http://localhost:8000/health"
 Write-Host "Loglar    : logs\pipeline.log, logs\api.log"
 Write-Host ""
-Write-Host "Durdurmak : .\stop_all.bat veya acilan pencerelerde Ctrl+C"
+Write-Host "Durdurmak : .\stop.bat  veya  .\stop_all.bat"
 if ($dockerOk) {
     Write-Host "Docker    : docker-compose down"
 }

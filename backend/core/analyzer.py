@@ -21,9 +21,12 @@ class AnomalyAnalyzer:
         self.fall_spine = float(os.getenv('FALL_SPINE_ANGLE', 30))
         self.run_speed = float(os.getenv('RUN_HORIZONTAL_SPEED', 90))
         self.cooldown = float(os.getenv('ANOMALY_COOLDOWN_SEC', 12))
-        self.min_samples = int(os.getenv('MIN_KINEMATICS_SAMPLES', 8))
+        self.min_samples = int(os.getenv('MIN_KINEMATICS_SAMPLES', 4))
         self.presence_enabled = os.getenv('ENABLE_PRESENCE_ALERT', 'false').lower() == 'true'
         self.presence_cooldown = float(os.getenv('PRESENCE_COOLDOWN_SEC', 30))
+        self.zone_bbox_fallback = os.getenv('ZONE_BBOX_FALLBACK', 'false').lower() == 'true'
+        self.frame_w = float(os.getenv('FRAME_WIDTH', 640))
+        self.frame_h = float(os.getenv('FRAME_HEIGHT', 480))
         self._known_tracks: set[int] = set()
 
         self._last_alert: dict[str, float] = {}
@@ -66,21 +69,24 @@ class AnomalyAnalyzer:
         vx = metrics.get('horizontal_velocity', 0)
         spine = metrics.get('spine_angle', 90)
         h_speed = abs(vx)
+        # Piksel/sn -> kare genisligine gore normalize (640px baz)
+        norm_h_speed = h_speed * (640.0 / max(self.frame_w, 1))
+        norm_vy = vy * (480.0 / max(self.frame_h, 1))
 
         anomaly_type = None
         confidence = 0.0
 
-        if h_speed >= self.run_speed:
+        if norm_h_speed >= self.run_speed:
             anomaly_type = self.ANOMALY_RUN
-            confidence = min(1.0, h_speed / self.run_speed * 0.8)
+            confidence = min(1.0, norm_h_speed / self.run_speed * 0.85)
+
+        elif norm_vy >= self.fall_vy and spine <= self.fall_spine:
+            anomaly_type = self.ANOMALY_FALL
+            confidence = min(1.0, norm_vy / self.fall_vy * 0.5 + (90 - spine) / 90 * 0.5)
 
         elif self._check_zone_violation(hip_center, camera_id):
             anomaly_type = self.ANOMALY_ZONE
             confidence = 0.85
-
-        elif vy >= self.fall_vy and spine <= self.fall_spine:
-            anomaly_type = self.ANOMALY_FALL
-            confidence = min(1.0, vy / self.fall_vy * 0.5 + (90 - spine) / 90 * 0.5)
 
         if not anomaly_type:
             return None
@@ -129,7 +135,9 @@ class AnomalyAnalyzer:
         return event
 
     def analyze_zone_bbox(self, track_id: int, bbox: list, camera_id: str) -> dict | None:
-        """Pose olmadan bbox merkezi ile alan ihlali."""
+        """Pose olmadan bbox merkezi ile alan ihlali (varsayilan kapali)."""
+        if not self.zone_bbox_fallback:
+            return None
         x1, y1, x2, y2 = bbox
         center = {'x': (x1 + x2) / 2, 'y': (y1 + y2) / 2, 'z': 0}
         if not self._check_zone_violation(center, camera_id):

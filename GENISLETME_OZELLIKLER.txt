@@ -1,0 +1,43 @@
+Genisletme Ozellikleri (Asama 8)
+================================
+
+1) DASHBOARD PILOT METRIK PANELI
+   Panelde Precision, Recall, mAP, Latency gosterilir.
+   Kaynak: results/latest.json (run_pilot_eval.bat sonrasi)
+
+2) COKLU KAMERA / RTSP
+   config/cameras.json — birden fazla kamera tanimi
+   Calistir: .\run_multi_kamera.bat
+   Dashboard'da kamera listesi gorunur
+
+3) MOBIL BILDIRIM (Firebase FCM)
+   .env:
+     FCM_ENABLED=true
+     FCM_SERVER_KEY=...
+     FCM_TOPIC=anomalies
+   Anomali olunca telefona push gider.
+
+4) FINE-TUNE + mAP
+   .\run_finetune.bat — arka plan egitim
+   Admin API: POST /api/training/start
+   Dashboard metrik panelinde model durumu
+   Egitim sonrasi .env: YOLO_MODEL_PATH=runs/.../best.pt
+
+5) PRODUCTION DEPLOY
+   deploy/docker-compose.prod.yml + nginx SSL
+   Detay: PRODUCTION_DEPLOY.txt
+   Calistir: deploy\prod-up.bat
+
+6) KULLANICI GIRISI / ROLLER
+   config/users.json
+   admin — test bildirimi, egitim baslatma
+   viewer — sadece izleme
+   Varsayilan: admin/admin123, viewer/viewer123
+   Kapatmak icin: AUTH_ENABLED=false
+
+GIRIS
+  Dashboard acilinca login ekrani gelir.
+  Token localStorage'da saklanir.
+
+COMMIT ONERISI
+  feat: metrik paneli, auth, FCM, coklu kamera, production deploy

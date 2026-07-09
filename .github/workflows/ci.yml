@@ -33,7 +33,7 @@ jobs:
           KAFKA_ENABLED: 'false'
           USE_GPU: 'false'
         run: |
-          pytest tests/test_evaluation.py tests/test_llm.py tests/test_integration.py tests/test_video_source.py -q
+          pytest tests/test_evaluation.py tests/test_llm.py tests/test_integration.py tests/test_video_source.py tests/test_auth.py -q
 
   frontend-build:
     runs-on: ubuntu-latest
