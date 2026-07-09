@@ -15,6 +15,7 @@ from core.pose import PoseEstimator
 from core.kinematics import KinematicsEngine
 from core.analyzer import AnomalyAnalyzer
 from core.visualizer import draw_tracks, draw_pose, draw_zones, draw_anomaly_alert
+from core.notifier import notify_api
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -136,32 +137,47 @@ class VideoKafkaProducer:
             for tr in tracks:
                 tid = tr['track_id']
                 active_ids.add(tid)
-                pose_data = self.pose_estimator.extract(frame, tr['bbox'])
+                bbox = tr['bbox']
+
+                # Yeni kisi girdi mi?
+                presence = self.analyzer.analyze_presence(tid, self.camera_id, bbox)
+                if presence:
+                    display = draw_anomaly_alert(display, presence)
+                    self._publish_anomaly(presence, [])
+                    notify_api(presence)
+
+                pose_data = self.pose_estimator.extract(frame, bbox)
 
                 entry = {
                     'track_id': tid,
-                    'bbox': tr['bbox'],
+                    'bbox': bbox,
                     'confidence': tr['confidence']
                 }
 
+                anomaly = None
                 if pose_data:
                     spine = self.pose_estimator.spine_angle(pose_data['raw_landmarks'])
                     metrics = self.kinematics.update(tid, pose_data['hip_center'], spine, ts)
                     entry['metrics'] = metrics
                     entry['hip_center'] = pose_data['hip_center']
-                    display = draw_pose(display, pose_data['raw_landmarks'], tr['bbox'])
-
+                    display = draw_pose(display, pose_data['raw_landmarks'], bbox)
                     anomaly = self.analyzer.analyze(
                         tid, metrics, pose_data['hip_center'], self.camera_id
                     )
-                    if anomaly:
-                        self._latest_anomaly = anomaly
-                        display = draw_anomaly_alert(display, anomaly)
-                        self._publish_anomaly(anomaly, pose_data['landmarks'])
+                else:
+                    anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, self.camera_id)
+
+                if anomaly:
+                    self._latest_anomaly = anomaly
+                    display = draw_anomaly_alert(display, anomaly)
+                    landmarks = pose_data['landmarks'] if pose_data else []
+                    self._publish_anomaly(anomaly, landmarks)
+                    notify_api(anomaly, landmarks)
 
                 track_payload.append(entry)
 
             self.kinematics.clear_stale(active_ids)
+            self.analyzer.clear_tracks(active_ids)
 
             cv2.imshow("MCBU - Anomali Tespit Sistemi", display)
             cv2.waitKey(1)
@@ -186,10 +202,9 @@ class VideoKafkaProducer:
             time.sleep(sleep_time)
 
     def _publish_anomaly(self, anomaly: dict, landmarks: list):
-        if not self.kafka_enabled or not self.producer:
-            logger.info(f"Anomali (yerel): {anomaly['anomaly_type']} | track={anomaly['track_id']}")
-            return
         payload = {**anomaly, 'landmarks': landmarks}
+        if not self.kafka_enabled or not self.producer:
+            return
         self.producer.send(
             self.anomaly_topic,
             key=self.camera_id,

@@ -2,24 +2,31 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 
 const ANOMALY_COLORS = {
   FALL: 'bg-red-600',
+  PERSON_ENTERED: 'bg-blue-600',
   RUN: 'bg-orange-500',
   ZONE_VIOLATION: 'bg-purple-600'
 }
 
 const ANOMALY_LABELS = {
   FALL: 'Dusme',
+  PERSON_ENTERED: 'Kisi Girdi',
   RUN: 'Kosma',
   ZONE_VIOLATION: 'Alan Ihlali'
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/alerts'
+// Vite proxy uzerinden ayni origin (5173) — CORS/WS sorunu olmaz
+const apiBase = import.meta.env.VITE_API_URL || ''
+const wsUrl = import.meta.env.VITE_WS_URL ||
+  `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/alerts`
 
-function handleAlert(data, setAlerts, setPopup, fetchHistory) {
-  if (data.type !== 'anomaly_alert') return
-  setAlerts((prev) => [data, ...prev].slice(0, 20))
+function showAlert(data, setAlerts, setPopup) {
+  if (!data || data.type !== 'anomaly_alert') return
+  setAlerts((prev) => {
+    const key = `${data.id}-${data.timestamp}-${data.track_id}`
+    if (prev.some((a) => `${a.id}-${a.timestamp}-${a.track_id}` === key)) return prev
+    return [data, ...prev].slice(0, 20)
+  })
   setPopup(data)
-  fetchHistory()
   setTimeout(() => setPopup(null), 8000)
 }
 
@@ -31,39 +38,70 @@ export default function Dashboard() {
   const [testMsg, setTestMsg] = useState('')
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
+  const lastDbIdRef = useRef(0)
 
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/anomalies?limit=30`)
+      const res = await fetch(`${apiBase}/api/anomalies?limit=30`)
+      if (!res.ok) return
       const data = await res.json()
-      setHistory(data.items || [])
+      const items = data.items || []
+      setHistory(items)
+
+      if (items.length > 0 && items[0].id > lastDbIdRef.current) {
+        const latest = items[0]
+        if (lastDbIdRef.current > 0) {
+          showAlert({
+            type: 'anomaly_alert',
+            id: latest.id,
+            camera_id: latest.camera_id,
+            track_id: latest.track_id,
+            anomaly_type: latest.anomaly_type,
+            confidence_score: latest.confidence_score,
+            report: latest.ai_generated_report || `${latest.anomaly_type} tespit edildi`,
+            timestamp: latest.timestamp
+          }, setAlerts, setPopup)
+        }
+        lastDbIdRef.current = items[0].id
+      } else if (items.length > 0 && lastDbIdRef.current === 0) {
+        lastDbIdRef.current = items[0].id
+      }
     } catch (e) {
       console.error('Gecmis kayitlar alinamadi', e)
     }
   }, [])
 
   const connectWs = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    if (wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return
+    }
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
       setConnected(true)
+      setTestMsg('')
       ws.send('ping')
     }
 
     ws.onclose = () => {
       setConnected(false)
+      wsRef.current = null
       reconnectRef.current = setTimeout(connectWs, 3000)
     }
 
-    ws.onerror = () => setConnected(false)
+    ws.onerror = () => {
+      setConnected(false)
+    }
 
     ws.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data)
-        handleAlert(data, setAlerts, setPopup, fetchHistory)
+        if (data.type === 'connected') return
+        showAlert(data, setAlerts, setPopup)
+        fetchHistory()
       } catch (e) {
         console.error('WS mesaj hatasi', e)
       }
@@ -73,7 +111,9 @@ export default function Dashboard() {
   useEffect(() => {
     fetchHistory()
     connectWs()
+    const poll = setInterval(fetchHistory, 3000)
     return () => {
+      clearInterval(poll)
       clearTimeout(reconnectRef.current)
       wsRef.current?.close()
     }
@@ -81,16 +121,15 @@ export default function Dashboard() {
 
   const sendTestAlert = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/test-alert`)
+      const res = await fetch(`${apiBase}/api/test-alert`)
       const data = await res.json()
-      setTestMsg(
-        data.connected_clients > 0
-          ? 'Test bildirimi gonderildi!'
-          : `Uyari: Bagli istemci yok (${data.connected_clients}). Sayfayi yenile.`
-      )
-      if (data.connected_clients === 0) {
-        connectWs()
+      if (data.alert) {
+        showAlert(data.alert, setAlerts, setPopup)
+        setTestMsg('Test bildirimi gosterildi!')
+      } else {
+        setTestMsg(data.message || 'Bildirim gonderildi')
       }
+      fetchHistory()
     } catch (e) {
       setTestMsg('API baglantisi yok — run_api.bat calistir.')
     }
@@ -111,7 +150,7 @@ export default function Dashboard() {
             Test Bildirimi Gonder
           </button>
           <div className={`px-3 py-1 rounded-full text-sm ${connected ? 'bg-green-700' : 'bg-red-700'}`}>
-            {connected ? 'WebSocket Bagli' : 'Baglanti Yok'}
+            {connected ? 'WebSocket Bagli' : 'Baglanti Yok (polling aktif)'}
           </div>
         </div>
       </header>
@@ -123,14 +162,14 @@ export default function Dashboard() {
       )}
 
       {popup && (
-        <div className="fixed top-4 right-4 z-50 max-w-md animate-pulse">
+        <div className="fixed top-4 right-4 z-50 max-w-md">
           <div className={`${ANOMALY_COLORS[popup.anomaly_type] || 'bg-red-600'} rounded-lg p-4 shadow-2xl border border-white/20`}>
             <h3 className="font-bold text-lg">
               {ANOMALY_LABELS[popup.anomaly_type] || popup.anomaly_type}
             </h3>
             <p className="mt-2 text-sm">{popup.report}</p>
             <p className="mt-1 text-xs opacity-80">
-              Kamera: {popup.camera_id} | ID: {popup.track_id} | Guven: {popup.confidence_score?.toFixed(2)}
+              Kamera: {popup.camera_id} | ID: {popup.track_id} | Guven: {Number(popup.confidence_score).toFixed(2)}
             </p>
           </div>
         </div>
@@ -141,14 +180,14 @@ export default function Dashboard() {
           <h2 className="text-lg font-semibold mb-4">Canli Uyarilar</h2>
           {alerts.length === 0 ? (
             <p className="text-slate-400 text-sm">
-              Henuz bildirim yok. Ustteki mavi &quot;Test Bildirimi Gonder&quot; butonuna tikla.
+              Henuz bildirim yok. &quot;Test Bildirimi Gonder&quot; butonuna tikla.
             </p>
           ) : (
             <ul className="space-y-3">
               {alerts.map((a, i) => (
                 <li key={i} className="bg-slate-700 rounded-lg p-3 border-l-4 border-orange-400">
                   <div className="flex justify-between">
-                    <span className="font-medium">{ANOMALY_LABELS[a.anomaly_type]}</span>
+                    <span className="font-medium">{ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}</span>
                     <span className="text-xs text-slate-400">{a.camera_id}</span>
                   </div>
                   <p className="text-sm mt-1 text-slate-300">{a.report}</p>

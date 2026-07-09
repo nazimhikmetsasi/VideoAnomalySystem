@@ -24,6 +24,39 @@ postgres_repo = PostgresRepository()
 mongo_repo = MongoRepository()
 llm_reporter = LLMReporter()
 
+
+async def _push_alert(event: dict) -> dict:
+    """DB kaydi + WebSocket yayini."""
+    report = llm_reporter.generate_report(event)
+    event['ai_generated_report'] = report
+
+    try:
+        pg_id = postgres_repo.save_anomaly(event, report)
+        mongo_repo.save_raw_metrics(event, pg_id)
+    except Exception as e:
+        logger.error(f"Veritabani kayit hatasi: {e}")
+        pg_id = None
+
+    payload = {
+        'type': 'anomaly_alert',
+        'id': pg_id,
+        'camera_id': event['camera_id'],
+        'track_id': event['track_id'],
+        'anomaly_type': event['anomaly_type'],
+        'confidence_score': event['confidence_score'],
+        'report': report,
+        'timestamp': event.get('timestamp')
+    }
+
+    global _main_loop
+    if _main_loop and _main_loop.is_running():
+        await manager.broadcast(payload)
+    else:
+        logger.warning("WebSocket loop hazir degil")
+
+    logger.info(f"Bildirim yayinlandi | {event['anomaly_type']}")
+    return payload
+
 _consumer_thread = None
 _stop_event = threading.Event()
 _main_loop = None
@@ -64,34 +97,11 @@ def _kafka_consumer_loop():
 
 
 def _handle_verified_anomaly(event: dict):
-    report = llm_reporter.generate_report(event)
-    event['ai_generated_report'] = report
-
-    try:
-        pg_id = postgres_repo.save_anomaly(event, report)
-        mongo_repo.save_raw_metrics(event, pg_id)
-    except Exception as e:
-        logger.error(f"Veritabani kayit hatasi: {e}")
-        pg_id = None
-
-    payload = {
-        'type': 'anomaly_alert',
-        'id': pg_id,
-        'camera_id': event['camera_id'],
-        'track_id': event['track_id'],
-        'anomaly_type': event['anomaly_type'],
-        'confidence_score': event['confidence_score'],
-        'report': report,
-        'timestamp': event.get('timestamp')
-    }
-
     global _main_loop
     if _main_loop and _main_loop.is_running():
-        asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)
+        asyncio.run_coroutine_threadsafe(_push_alert(event), _main_loop)
     else:
-        logger.warning("WebSocket yayini icin event loop hazir degil")
-
-    logger.info(f"Anomali islendi ve yayinlandi | {event['anomaly_type']}")
+        logger.warning("Event loop hazir degil — anomali atlandi")
 
 
 @asynccontextmanager
@@ -129,35 +139,42 @@ def list_anomalies(limit: int = 50):
     return {'items': postgres_repo.list_recent(limit)}
 
 
+@app.post('/api/internal/alert')
+async def internal_alert(event: dict):
+    """Kamera pipeline'dan dogrudan bildirim alir."""
+    payload = await _push_alert(event)
+    return {'ok': True, 'alert': payload}
+
+
 @app.get('/api/test-alert')
 @app.post('/api/test-alert')
 async def test_alert():
-    """Dashboard baglantisini test etmek icin — tarayicidan acilabilir."""
-    payload = {
-        'type': 'anomaly_alert',
-        'id': 0,
+    event = {
         'camera_id': 'cam_01',
         'track_id': 99,
         'anomaly_type': 'RUN',
         'confidence_score': 0.95,
-        'report': 'Test bildirimi — sistem calisiyor.',
+        'metrics': {},
         'timestamp': time.time()
     }
-    client_count = len(manager.active)
-    await manager.broadcast(payload)
+    payload = await _push_alert(event)
     return {
         'ok': True,
         'message': 'Test bildirimi gonderildi',
-        'connected_clients': client_count
+        'connected_clients': len(manager.active),
+        'alert': payload
     }
 
 
 @app.websocket('/ws/alerts')
 async def websocket_alerts(websocket: WebSocket):
     await manager.connect(websocket)
+    await websocket.send_json({'type': 'connected', 'message': 'MCBU Anomali WS'})
     try:
         while True:
-            await websocket.receive_text()
+            msg = await websocket.receive_text()
+            if msg == 'ping':
+                await websocket.send_json({'type': 'pong'})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

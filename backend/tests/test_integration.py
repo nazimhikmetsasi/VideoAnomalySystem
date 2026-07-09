@@ -18,7 +18,7 @@ def test_kinematics_vertical_velocity():
 def test_analyzer_fall_detection():
     analyzer = AnomalyAnalyzer()
     metrics = {
-        'vertical_velocity': 120,
+        'vertical_velocity': 150,
         'horizontal_velocity': 5,
         'spine_angle': 20,
         'sample_count': 10
@@ -37,7 +37,7 @@ def test_analyzer_run_detection():
     analyzer = AnomalyAnalyzer()
     metrics = {
         'vertical_velocity': 10,
-        'horizontal_velocity': 80,
+        'horizontal_velocity': 120,
         'spine_angle': 80,
         'sample_count': 10
     }

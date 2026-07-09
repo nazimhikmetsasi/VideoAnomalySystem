@@ -6,6 +6,7 @@ logger = logging.getLogger('video_pipeline')
 
 ANOMALY_LABELS = {
     'FALL': 'yere dusme',
+    'PERSON_ENTERED': 'kisi kareye girdi',
     'RUN': 'hizli kosma',
     'ZONE_VIOLATION': 'yasakli alan ihlali'
 }
