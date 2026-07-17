@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
-powershell -ExecutionPolicy Bypass -File "%~dp0docker-up.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker-up.ps1"
 pause

@@ -55,7 +55,7 @@ try {
     $h = Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 10
     Write-Host "      API: $($h.status)" -ForegroundColor Green
 } catch {
-    Write-Host "      API henuz hazir degil — birkaç saniye bekleyin." -ForegroundColor Yellow
+    Write-Host "      API henuz hazir degil - birkac saniye bekleyin." -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -64,6 +64,6 @@ Write-Host "Dashboard : http://localhost:3000"
 Write-Host "API       : http://localhost:8000/health"
 Write-Host "Kafka     : localhost:9092"
 Write-Host ""
-Write-Host "Kamera (yerel — onerilen): .\run_kamera.bat"
-Write-Host "Kamera (Docker — webcam gerekir): docker compose --profile capture up -d capture"
+Write-Host "Kamera (yerel - onerilen): .\run_kamera.bat"
+Write-Host "Kamera (Docker - webcam gerekir): docker compose --profile capture up -d capture"
 Write-Host "Durdurmak : .\docker-down.bat"
