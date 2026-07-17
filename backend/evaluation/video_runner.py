@@ -78,6 +78,7 @@ class VideoEvalRunner:
                 t2 = time.perf_counter()
                 tracks = self.tracker.update(detections, frame)
                 t3 = time.perf_counter()
+                frame_poses = self.pose_estimator.extract_all(frame)
 
                 active_ids = set()
                 ts = time.time()
@@ -98,15 +99,17 @@ class VideoEvalRunner:
                         ))
 
                     t_pose_start = time.perf_counter()
-                    pose_data = self.pose_estimator.extract(frame, bbox)
+                    pose_data = self.pose_estimator.match_track(bbox, frame_poses)
                     t4 = time.perf_counter()
 
                     anomaly = None
                     if pose_data:
                         spine = self.pose_estimator.spine_angle(pose_data['raw_landmarks'])
                         metrics = self.kinematics.update(tid, pose_data['hip_center'], spine, ts)
+                        pose_features = pose_data.get('features')
                         anomaly = self.analyzer.analyze(
-                            tid, metrics, pose_data['hip_center'], self.camera_id
+                            tid, metrics, pose_data['hip_center'], self.camera_id,
+                            pose_features,
                         )
                     else:
                         anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, self.camera_id)

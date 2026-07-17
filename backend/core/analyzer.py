@@ -5,6 +5,12 @@ import time
 import cv2
 import numpy as np
 
+from core.motion_classifier import (
+    MotionClassifier,
+    MOTION_RUNNING,
+    MOTION_FALLING,
+)
+
 logger = logging.getLogger('video_pipeline')
 
 
@@ -28,6 +34,7 @@ class AnomalyAnalyzer:
         self.frame_w = float(os.getenv('FRAME_WIDTH', 640))
         self.frame_h = float(os.getenv('FRAME_HEIGHT', 480))
         self._known_tracks: set[int] = set()
+        self.motion_classifier = MotionClassifier()
 
         self._last_alert: dict[str, float] = {}
         self._zones = self._load_zones()
@@ -59,28 +66,34 @@ class AnomalyAnalyzer:
         track_id: int,
         metrics: dict,
         hip_center: dict,
-        camera_id: str
+        camera_id: str,
+        pose_features: dict | None = None,
+        motion_info: dict | None = None,
     ) -> dict | None:
         """Kinematik metriklere gore anomali karari uretir."""
         if metrics.get('sample_count', 0) < self.min_samples:
             return None
 
+        if motion_info is None:
+            motion_info = self.motion_classifier.classify(track_id, metrics, pose_features)
+        metrics = {**metrics, **motion_info}
+
         vy = metrics.get('vertical_velocity', 0)
         vx = metrics.get('horizontal_velocity', 0)
         spine = metrics.get('spine_angle', 90)
         h_speed = abs(vx)
-        # Piksel/sn -> kare genisligine gore normalize (640px baz)
         norm_h_speed = h_speed * (640.0 / max(self.frame_w, 1))
         norm_vy = vy * (480.0 / max(self.frame_h, 1))
 
+        confirmed = motion_info.get('motion_confirmed')
         anomaly_type = None
         confidence = 0.0
 
-        if norm_h_speed >= self.run_speed:
+        if confirmed == MOTION_RUNNING or norm_h_speed >= self.run_speed:
             anomaly_type = self.ANOMALY_RUN
             confidence = min(1.0, norm_h_speed / self.run_speed * 0.85)
 
-        elif norm_vy >= self.fall_vy and spine <= self.fall_spine:
+        elif confirmed == MOTION_FALLING or (norm_vy >= self.fall_vy and spine <= self.fall_spine):
             anomaly_type = self.ANOMALY_FALL
             confidence = min(1.0, norm_vy / self.fall_vy * 0.5 + (90 - spine) / 90 * 0.5)
 
@@ -100,14 +113,20 @@ class AnomalyAnalyzer:
             'track_id': track_id,
             'anomaly_type': anomaly_type,
             'confidence_score': round(confidence, 3),
+            'motion': motion_info.get('motion'),
+            'motion_confirmed': confirmed,
             'metrics': metrics,
             'hip_center': hip_center,
             'timestamp': time.time()
         }
         logger.info(
-            f"ANOMALI | {anomaly_type} | cam={camera_id} | track={track_id} | conf={confidence:.2f}"
+            f"ANOMALI | {anomaly_type} | cam={camera_id} | track={track_id} | "
+            f"motion={motion_info.get('motion')} | conf={confidence:.2f}"
         )
         return event
+
+    def reset_track(self, track_id: int):
+        self.motion_classifier.reset_track(track_id)
 
     def analyze_presence(self, track_id: int, camera_id: str, bbox: list) -> dict | None:
         """Yeni kisi kareye girdiginde tetiklenir (opsiyonel)."""
@@ -158,6 +177,7 @@ class AnomalyAnalyzer:
     def clear_tracks(self, active_ids: set):
         """Ekrandan cikan track ID'lerini temizler — tekrar girince bildirim gelir."""
         self._known_tracks &= active_ids
+        self.motion_classifier.clear_stale(active_ids)
 
     def _check_zone_violation(self, hip_center: dict, camera_id: str) -> bool:
         forbidden = self._zones.get(camera_id, [])

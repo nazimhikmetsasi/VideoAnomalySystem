@@ -78,6 +78,10 @@ class KinematicsEngine:
 
         return metrics
 
+    def reset_track(self, track_id: int):
+        """ID sicramasi veya karisiklik sonrasi tamponu sifirlar."""
+        self._buffers.pop(track_id, None)
+
     def clear_stale(self, active_ids: set):
         """Aktif olmayan track tamponlarini temizler."""
         stale = [tid for tid in self._buffers if tid not in active_ids]

@@ -13,6 +13,7 @@ from core.tracker import PersonTracker
 from core.pose import PoseEstimator
 from core.kinematics import KinematicsEngine
 from core.analyzer import AnomalyAnalyzer
+from core.track_state import TrackStateManager
 from core.visualizer import (
     draw_tracks, draw_pose, draw_zones, draw_anomaly_alert, draw_kinematics_debug
 )
@@ -66,6 +67,7 @@ class VideoKafkaProducer:
         self.pose_estimator = PoseEstimator()
         self.kinematics = KinematicsEngine()
         self.analyzer = AnomalyAnalyzer()
+        self.track_state = TrackStateManager()
 
         self.producer = None
         if self.kafka_enabled:
@@ -123,19 +125,26 @@ class VideoKafkaProducer:
             # YOLO + DeepSORT
             detections = self.detector.detect(frame)
             tracks = self.tracker.update(detections, frame)
+            frame_poses = self.pose_estimator.extract_all(frame)
 
             display = frame.copy()
             display = draw_zones(display, zones)
-            display = draw_tracks(display, tracks)
 
             active_ids = set()
             track_payload = []
+            motion_map = {}
             ts = time.time()
 
             for tr in tracks:
                 tid = tr['track_id']
                 active_ids.add(tid)
                 bbox = tr['bbox']
+
+                state = self.track_state.update(tid, bbox)
+                tr['is_stable'] = state['is_stable']
+                if state['id_jump']:
+                    self.kinematics.reset_track(tid)
+                    self.analyzer.reset_track(tid)
 
                 # Yeni kisi girdi mi?
                 presence = self.analyzer.analyze_presence(tid, self.camera_id, bbox)
@@ -144,7 +153,7 @@ class VideoKafkaProducer:
                     self._publish_anomaly(presence, [])
                     notify_api(presence)
 
-                pose_data = self.pose_estimator.extract(frame, bbox)
+                pose_data = self.pose_estimator.match_track(bbox, frame_poses)
 
                 entry = {
                     'track_id': tid,
@@ -153,7 +162,7 @@ class VideoKafkaProducer:
                 }
 
                 anomaly = None
-                if pose_data:
+                if pose_data and state['is_stable']:
                     spine = self.pose_estimator.spine_angle(pose_data['raw_landmarks'])
                     metrics = self.kinematics.update(tid, pose_data['hip_center'], spine, ts)
                     entry['metrics'] = metrics
@@ -165,9 +174,21 @@ class VideoKafkaProducer:
                             self.analyzer.run_speed, self.analyzer.fall_vy,
                             y_offset=55 + len(track_payload) * 70,
                         )
+                    pose_features = pose_data.get('features')
+                    motion_preview = self.analyzer.motion_classifier.classify(tid, metrics, pose_features)
+                    metrics.update(motion_preview)
+                    motion_map[tid] = motion_preview
                     anomaly = self.analyzer.analyze(
-                        tid, metrics, pose_data['hip_center'], self.camera_id
+                        tid, metrics, pose_data['hip_center'], self.camera_id,
+                        pose_features, motion_preview,
                     )
+                elif pose_data:
+                    spine = self.pose_estimator.spine_angle(pose_data['raw_landmarks'])
+                    metrics = self.kinematics.update(tid, pose_data['hip_center'], spine, ts)
+                    pose_features = pose_data.get('features')
+                    motion_preview = self.analyzer.motion_classifier.classify(tid, metrics, pose_features)
+                    motion_map[tid] = motion_preview
+                    display = draw_pose(display, pose_data['raw_landmarks'], bbox)
                 else:
                     anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, self.camera_id)
 
@@ -180,8 +201,10 @@ class VideoKafkaProducer:
 
                 track_payload.append(entry)
 
+            display = draw_tracks(display, tracks, motion_map)
             self.kinematics.clear_stale(active_ids)
             self.analyzer.clear_tracks(active_ids)
+            self.track_state.clear_stale(active_ids)
 
             if self.show_window:
                 cv2.imshow(self.window_title, display)
