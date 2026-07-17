@@ -2,5 +2,11 @@
   "cam_01": [
     [[480, 300], [620, 300], [620, 460], [480, 460]]
   ],
-  "_aciklama": "Kucuk yasakli bolge: sag-alt kose. Ortada durmak ihlal sayilmaz."
+  "cam_zone_01": [
+    [[220, 100], [630, 80], [630, 470], [180, 470]]
+  ],
+  "_aciklama": {
+    "cam_01": "Canli webcam — sag alt kucuk alan",
+    "cam_zone_01": "zone_01.mp4 bina girisi (640x480 resize sonrasi)"
+  }
 }

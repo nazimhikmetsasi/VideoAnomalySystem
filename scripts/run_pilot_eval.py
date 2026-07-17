@@ -54,7 +54,7 @@ def main():
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     output_dir = Path(args.output) / f'pilot_{timestamp}'
 
-    detection = None
+    detection = {'source': 'skipped', 'map50': None, 'map50_95': None}
     if not args.detection_only:
         print('=== Anomali pilot degerlendirme ===')
     if not args.skip_detection and not args.detection_only:
@@ -86,7 +86,8 @@ def main():
         print(f'Isleniyor: {video_path.name} ...')
         ann = load_annotation(ann_path)
         gt_events, normal_segments = annotation_to_events(ann)
-        run_result = runner.run(video_path, max_frames=args.max_frames)
+        cam_id = ann.get('camera_id', 'cam_01')
+        run_result = runner.run(video_path, max_frames=args.max_frames, camera_id=cam_id)
 
         if run_result['status'] != 'ok':
             video_rows.append({

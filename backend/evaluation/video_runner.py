@@ -36,8 +36,9 @@ class VideoEvalRunner:
         self.analyzer = AnomalyAnalyzer()
         self.latency = LatencyTracker()
 
-    def run(self, video_path: str | Path, max_frames: int | None = None) -> dict:
+    def run(self, video_path: str | Path, max_frames: int | None = None, camera_id: str | None = None) -> dict:
         path = Path(video_path)
+        cam_id = camera_id or self.camera_id
         if not path.exists():
             return {
                 'video': path.name,
@@ -58,6 +59,10 @@ class VideoEvalRunner:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         predictions: list[PredictedEvent] = []
         frame_idx = 0
+        # Her videoda temiz takip durumu
+        self.kinematics = KinematicsEngine()
+        self.tracker = PersonTracker()
+        self.analyzer = AnomalyAnalyzer()
 
         try:
             while True:
@@ -89,7 +94,7 @@ class VideoEvalRunner:
                     active_ids.add(tid)
                     bbox = tr['bbox']
 
-                    presence = self.analyzer.analyze_presence(tid, self.camera_id, bbox)
+                    presence = self.analyzer.analyze_presence(tid, cam_id, bbox)
                     if presence:
                         predictions.append(PredictedEvent(
                             anomaly_type=presence['anomaly_type'],
@@ -108,11 +113,11 @@ class VideoEvalRunner:
                         metrics = self.kinematics.update(tid, pose_data['hip_center'], spine, ts)
                         pose_features = pose_data.get('features')
                         anomaly = self.analyzer.analyze(
-                            tid, metrics, pose_data['hip_center'], self.camera_id,
+                            tid, metrics, pose_data['hip_center'], cam_id,
                             pose_features,
                         )
                     else:
-                        anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, self.camera_id)
+                        anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, cam_id)
 
                     if anomaly:
                         predictions.append(PredictedEvent(
@@ -135,13 +140,13 @@ class VideoEvalRunner:
 
         finally:
             cap.release()
-            self.pose_estimator.close()
 
         latency_summary = self.latency.summary()
         avg_total = latency_summary.get('total_frame') or {}
         return {
             'video': path.name,
             'status': 'ok',
+            'camera_id': cam_id,
             'fps': round(fps, 2),
             'frames_processed': frame_idx,
             'predictions': predictions,

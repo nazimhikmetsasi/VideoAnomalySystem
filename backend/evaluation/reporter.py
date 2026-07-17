@@ -39,9 +39,9 @@ def write_report(output_dir: Path, summary: dict, video_rows: list[dict]) -> Pat
         f"  Ort. kare gecikmesi   : {summary.get('anomaly', {}).get('avg_frame_latency_ms')} ms",
         '',
         'TESPIT (YOLO)',
-        f"  mAP@0.5               : {summary.get('detection', {}).get('map50')}",
-        f"  mAP@0.5:0.95          : {summary.get('detection', {}).get('map50_95')}",
-        f"  Kaynak                : {summary.get('detection', {}).get('source')}",
+        f"  mAP@0.5               : {(summary.get('detection') or {}).get('map50')}",
+        f"  mAP@0.5:0.95          : {(summary.get('detection') or {}).get('map50_95')}",
+        f"  Kaynak                : {(summary.get('detection') or {}).get('source')}",
         '',
         'VIDEO DETAYLARI',
     ]
@@ -51,7 +51,7 @@ def write_report(output_dir: Path, summary: dict, video_rows: list[dict]) -> Pat
             f"TP={row.get('tp')} FP={row.get('fp')} FN={row.get('fn')} | "
             f"latency={row.get('avg_frame_latency_ms')}ms"
         )
-    if summary.get('detection', {}).get('note'):
+    if (summary.get('detection') or {}).get('note'):
         lines.extend(['', 'NOT:', summary['detection']['note']])
 
     with open(txt_path, 'w', encoding='utf-8') as f:

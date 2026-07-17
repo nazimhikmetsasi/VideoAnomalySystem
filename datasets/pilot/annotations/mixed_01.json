@@ -1,12 +1,9 @@
 {
   "video": "mixed_01.mp4",
   "camera_id": "cam_01",
-  "description": "Karisik senaryo — kosma + bolge ihlali",
+  "description": "Kosma sonra yavaslama/dinlenme (zone yok)",
   "events": [
-    {"type": "NORMAL", "start_sec": 0.0, "end_sec": 2.0},
-    {"type": "RUN", "start_sec": 2.5, "end_sec": 5.0},
-    {"type": "NORMAL", "start_sec": 5.5, "end_sec": 7.0},
-    {"type": "ZONE_VIOLATION", "start_sec": 7.5, "end_sec": 10.0},
-    {"type": "NORMAL", "start_sec": 10.5, "end_sec": 15.0}
+    {"type": "RUN", "start_sec": 0.5, "end_sec": 8.0},
+    {"type": "NORMAL", "start_sec": 8.5, "end_sec": 27.0}
   ]
 }
