@@ -6,6 +6,15 @@ export const ANOMALY_LABELS = {
   RUN_ZONE: 'Koşarak Alan İhlali',
 }
 
+/** Yüksek = daha kritik (liste sıralaması) */
+export const SEVERITY_RANK = {
+  FALL: 100,
+  RUN_ZONE: 90,
+  RUN: 70,
+  ZONE_VIOLATION: 50,
+  PERSON_ENTERED: 20,
+}
+
 export const ANOMALY_ACCENT = {
   FALL: 'border-l-[#e05656]',
   PERSON_ENTERED: 'border-l-sky-500',
@@ -31,8 +40,39 @@ export const ANOMALY_TYPES = [
   { value: 'PERSON_ENTERED', label: 'Kişi Girdi' },
 ]
 
+export const DATE_RANGES = [
+  { value: '', label: 'Tüm zamanlar' },
+  { value: 'today', label: 'Bugün' },
+  { value: 'week', label: 'Bu hafta' },
+]
+
 export const THEME_KEY = 'mcbu_theme'
 export const SOUND_KEY = 'mcbu_sound'
+export const READ_KEY = 'mcbu_read_alerts'
+
+export function alertKey(a) {
+  return [
+    a.id ?? '',
+    a.camera_id ?? '',
+    a.track_id ?? '',
+    a.anomaly_type ?? '',
+    a.timestamp ?? '',
+  ].join('|')
+}
+
+export function loadReadSet() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(READ_KEY) || '[]')
+    return new Set(Array.isArray(raw) ? raw : [])
+  } catch {
+    return new Set()
+  }
+}
+
+export function saveReadSet(set) {
+  const arr = [...set].slice(-300)
+  localStorage.setItem(READ_KEY, JSON.stringify(arr))
+}
 
 export function getStoredTheme() {
   const t = localStorage.getItem(THEME_KEY)
@@ -63,4 +103,29 @@ export function playAlertBeep() {
   } catch {
     /* sessiz */
   }
+}
+
+export function exportAlertsCsv(rows) {
+  const header = ['Zaman', 'Tip', 'Kamera', 'Varlık ID', 'Güven', 'Rapor']
+  const lines = [header.join(';')]
+  for (const r of rows) {
+    const tip = ANOMALY_LABELS[r.anomaly_type] || r.anomaly_type || ''
+    const ts = r.timestamp ? new Date(r.timestamp).toLocaleString('tr-TR') : ''
+    const report = String(r.report || r.ai_generated_report || '').replace(/;/g, ',').replace(/\n/g, ' ')
+    lines.push([
+      ts,
+      tip,
+      r.camera_id ?? '',
+      r.track_id ?? '',
+      r.confidence_score ?? '',
+      report,
+    ].join(';'))
+  }
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `mcbu_uyarilar_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }

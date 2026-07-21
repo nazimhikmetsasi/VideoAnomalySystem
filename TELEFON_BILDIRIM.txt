@@ -1,0 +1,30 @@
+MCBU — Telefona bildirim (özel uygulama YOK)
+
+Önerilen: Telegram (ücretsiz, 5 dk)
+------------------------------------
+1) Telefonda Telegram aç
+2) @BotFather ara → /newbot → bot adı ver → TOKEN kopyala
+3) Oluşturduğun bota git → Start /start
+4) @userinfobot ara → sana Chat ID verir (örn. 123456789)
+5) .env dosyasına yaz:
+
+   TELEGRAM_ENABLED=true
+   TELEGRAM_BOT_TOKEN=123456:ABC-botfather-token
+   TELEGRAM_CHAT_ID=123456789
+
+6) API’yi yeniden başlat
+7) Panelden "Test bildirimi" → telefonda Telegram mesajı gelmeli
+
+Alternatif: SMS (Netgsm — ücretli)
+----------------------------------
+   SMS_ENABLED=true
+   SMS_PROVIDER=netgsm
+   NETGSM_USER=...
+   NETGSM_PASS=...
+   NETGSM_HEADER= baslik (onayli)
+   SMS_TO=05xxxxxxxxx
+
+Kontrol
+-------
+GET http://127.0.0.1:8000/api/push/status
+→ "phone.telegram.ready": true olmali

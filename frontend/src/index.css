@@ -86,3 +86,148 @@ h1, h2, h3, .font-display {
   object-fit: contain;
   object-position: center;
 }
+
+/* Tema anahtarı — düz pill (güneş / ay) */
+.theme-switch {
+  position: relative;
+  width: 72px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.25s ease;
+}
+
+.theme-switch--light {
+  background: #e4e4e7;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.theme-switch--dark {
+  background: #0a0a0a;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.theme-switch__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transition: transform 0.25s ease;
+  z-index: 2;
+}
+
+.theme-switch--dark .theme-switch__knob {
+  transform: translateX(36px);
+}
+
+.theme-switch__icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.theme-switch__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.theme-switch__icon--sun {
+  right: 9px;
+  color: #a1a1aa;
+}
+
+.theme-switch__icon--moon {
+  left: 8px;
+  color: #fafafa;
+  opacity: 0;
+}
+
+.theme-switch__icon--moon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.theme-switch--dark .theme-switch__icon--sun {
+  opacity: 0;
+}
+
+.theme-switch--dark .theme-switch__icon--moon {
+  opacity: 1;
+}
+
+.theme-switch--light .theme-switch__icon--sun {
+  opacity: 1;
+}
+
+.theme-switch--light .theme-switch__icon--moon {
+  opacity: 0;
+}
+
+/* Ses anahtarı */
+.sound-switch--on {
+  background: #0a0a0a;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.sound-switch--off {
+  background: #e4e4e7;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.sound-switch--on .theme-switch__knob {
+  transform: translateX(36px);
+}
+
+.sound-switch--off .theme-switch__knob {
+  transform: translateX(0);
+}
+
+.sound-switch__icon--on {
+  left: 8px;
+  color: #fafafa;
+  opacity: 0;
+}
+
+.sound-switch__icon--off {
+  right: 9px;
+  color: #a1a1aa;
+  opacity: 1;
+}
+
+.sound-switch--on .sound-switch__icon--on {
+  opacity: 1;
+}
+
+.sound-switch--on .sound-switch__icon--off {
+  opacity: 0;
+}
+
+.sound-switch--off .sound-switch__icon--on {
+  opacity: 0;
+}
+
+.sound-switch--off .sound-switch__icon--off {
+  opacity: 1;
+}
+
+.header-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.alert-card--read {
+  opacity: 0.45;
+}

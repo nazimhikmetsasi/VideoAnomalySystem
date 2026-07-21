@@ -23,6 +23,7 @@ from database.mongo import MongoRepository
 from llm.reporter import LLMReporter
 from core.logging_config import setup_logging
 from core.push_notifier import send_push_alert, status as fcm_status, format_push_message
+from core.phone_notifier import send_phone_alert, phone_status
 from core.camera_config import load_cameras_config
 from core.frame_store import live_path, snapshot_path
 from pathlib import Path
@@ -69,7 +70,9 @@ async def _push_alert(event: dict) -> dict:
 
     logger.info(f"Bildirim yayinlandi | {event['anomaly_type']} | track={event.get('track_id')}")
     fcm_result = await asyncio.to_thread(send_push_alert, payload)
+    phone_result = await asyncio.to_thread(send_phone_alert, payload)
     payload['fcm'] = fcm_result
+    payload['phone'] = phone_result
     return payload
 
 
@@ -294,8 +297,9 @@ async def internal_alert(event: dict):
 
 @app.get('/api/push/status')
 def push_status(user: dict = Depends(get_current_user)):
-    """FCM hazir mi? Android olmadan da kontrol edilir."""
+    """FCM + telefon (Telegram/SMS) durumu."""
     st = fcm_status()
+    phone = phone_status()
     sample = {
         'camera_id': 'cam_01',
         'track_id': 2,
@@ -306,11 +310,19 @@ def push_status(user: dict = Depends(get_current_user)):
     title, body = format_push_message(sample)
     return {
         'fcm': st,
+        'phone': phone,
         'ornek_bildirim': {'title': title, 'body': body},
-        'test_ipucu': (
-            'Android yoksa: Chrome masaustu + FCM_KURULUM.txt '
-            'veya panelden Test Bildirimi + /api/push/status ile metni dogrula.'
-        ),
+        'kurulum': {
+            'telegram': (
+                '1) Telegram’da @BotFather → /newbot → token al. '
+                '2) Bota /start yaz. 3) chat id için @userinfobot. '
+                '4) .env: TELEGRAM_ENABLED=true, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID'
+            ),
+            'sms': (
+                'Netgsm: SMS_ENABLED=true, SMS_PROVIDER=netgsm, '
+                'NETGSM_USER, NETGSM_PASS, NETGSM_HEADER, SMS_TO=05xxxxxxxxx'
+            ),
+        },
     }
 
 

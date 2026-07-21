@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { apiFetch } from '../api'
 import MetricsPanel from './MetricsPanel'
 import LivePreview from './LivePreview'
@@ -6,28 +6,35 @@ import ZoneMap from './ZoneMap'
 import AlertFilters, { matchFilters } from './AlertFilters'
 import StatsSummary from './StatsSummary'
 import SnapshotModal from './SnapshotModal'
+import ThemeToggle from './ThemeToggle'
+import SoundToggle from './SoundToggle'
 import {
   ANOMALY_LABELS,
   ANOMALY_ACCENT,
   ANOMALY_BADGE,
+  SEVERITY_RANK,
   SOUND_KEY,
   getStoredTheme,
   applyTheme,
   playAlertBeep,
+  alertKey,
+  loadReadSet,
+  saveReadSet,
 } from '../constants'
 
 const wsUrl = import.meta.env.VITE_WS_URL ||
   `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/alerts`
 
+const MERGE_PRIORITY = {
+  RUN_ZONE: 4,
+  FALL: 4,
+  RUN: 3,
+  ZONE_VIOLATION: 2,
+  PERSON_ENTERED: 1,
+}
+
 function showAlert(data, setAlerts, setPopup, soundOn) {
   if (!data || data.type !== 'anomaly_alert') return
-  const PRIORITY = {
-    RUN_ZONE: 4,
-    FALL: 4,
-    RUN: 3,
-    ZONE_VIOLATION: 2,
-    PERSON_ENTERED: 1,
-  }
   setAlerts((prev) => {
     const tid = data.track_id
     const cam = data.camera_id
@@ -37,20 +44,32 @@ function showAlert(data, setAlerts, setPopup, soundOn) {
     const idx = prev.findIndex((a) => a.track_id === tid && a.camera_id === cam)
     if (idx >= 0) {
       const old = prev[idx]
-      const oldP = PRIORITY[old.anomaly_type] || 0
-      const newP = PRIORITY[atype] || 0
+      const oldP = MERGE_PRIORITY[old.anomaly_type] || 0
+      const newP = MERGE_PRIORITY[atype] || 0
       if (newP <= oldP) return prev
       const next = [...prev]
-      next[idx] = data
+      next[idx] = { ...data, read: false }
       return next
     }
-    if (soundOn) {
-      queueMicrotask(() => playAlertBeep())
-    }
-    return [data, ...prev].slice(0, 20)
+    if (soundOn) queueMicrotask(() => playAlertBeep())
+    return [{ ...data, read: false }, ...prev].slice(0, 40)
   })
   setPopup(data)
   setTimeout(() => setPopup(null), 8000)
+}
+
+function sortBySeverity(list, readSet) {
+  return [...list].sort((a, b) => {
+    const ra = readSet.has(alertKey(a)) ? 1 : 0
+    const rb = readSet.has(alertKey(b)) ? 1 : 0
+    if (ra !== rb) return ra - rb
+    const sa = SEVERITY_RANK[a.anomaly_type] || 0
+    const sb = SEVERITY_RANK[b.anomaly_type] || 0
+    if (sb !== sa) return sb - sa
+    const ta = new Date(a.timestamp || 0).getTime()
+    const tb = new Date(b.timestamp || 0).getTime()
+    return tb - ta
+  })
 }
 
 export default function Dashboard({ user, onLogout }) {
@@ -63,9 +82,10 @@ export default function Dashboard({ user, onLogout }) {
   const [cameras, setCameras] = useState([])
   const [theme, setTheme] = useState(() => getStoredTheme())
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(SOUND_KEY) !== 'off')
-  const [filters, setFilters] = useState({ q: '', type: '', camera: '', date: '' })
+  const [filters, setFilters] = useState({ q: '', type: '', camera: '', date: '', range: '' })
   const [selectedAlert, setSelectedAlert] = useState(null)
   const [previewCam, setPreviewCam] = useState('cam_01')
+  const [readSet, setReadSet] = useState(() => loadReadSet())
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const lastDbIdRef = useRef(0)
@@ -87,6 +107,16 @@ export default function Dashboard({ user, onLogout }) {
     setSoundOn(next)
     localStorage.setItem(SOUND_KEY, next ? 'on' : 'off')
   }
+
+  const markRead = useCallback((item) => {
+    const key = alertKey(item)
+    setReadSet((prev) => {
+      const next = new Set(prev)
+      next.add(key)
+      saveReadSet(next)
+      return next
+    })
+  }, [])
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -208,29 +238,46 @@ export default function Dashboard({ user, onLogout }) {
     }
   }
 
-  const filteredAlerts = alerts.filter((a) => matchFilters(a, filters))
-  const filteredHistory = history.filter((h) => matchFilters({
-    ...h,
-    report: h.ai_generated_report,
-  }, filters))
+  const filteredAlerts = useMemo(() => {
+    const list = alerts.filter((a) => matchFilters(a, filters))
+    return sortBySeverity(list, readSet)
+  }, [alerts, filters, readSet])
+
+  const filteredHistory = useMemo(() => {
+    const list = history.filter((h) => matchFilters({
+      ...h,
+      report: h.ai_generated_report,
+    }, filters))
+    return sortBySeverity(list, readSet)
+  }, [history, filters, readSet])
+
+  const unreadCount = filteredAlerts.filter((a) => !readSet.has(alertKey(a))).length
 
   const btnGhost = 'px-3.5 py-1.5 rounded-md text-sm font-medium border border-[var(--line)] text-[var(--text)] hover:bg-[var(--bg2)] transition'
   const btnPrimary = 'px-3.5 py-1.5 rounded-md text-sm font-medium bg-[var(--accent)] text-[#04120f] hover:brightness-110 transition'
+
+  const userLabel = user?.username || 'kullanıcı'
 
   return (
     <div className="min-h-screen text-[var(--text)]">
       <header className="border-b border-[var(--line)] bg-[var(--bg1)]/85 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--accent)] font-semibold mb-1">
-              MCBU
-            </p>
-            <h1 className="font-display text-xl md:text-2xl font-semibold">
-              Video Anomali Paneli
-            </h1>
-            <p className="text-sm text-[var(--muted)] mt-0.5">
-              Video tabanlı anomali tespiti ve davranış analizi
-            </p>
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="header-toggles">
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <SoundToggle soundOn={soundOn} onToggle={toggleSound} />
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--accent)] font-semibold mb-1">
+                MCBU
+              </p>
+              <h1 className="font-display text-xl md:text-2xl font-semibold">
+                Video Anomali Paneli
+              </h1>
+              <p className="text-sm text-[var(--muted)] mt-0.5">
+                Video tabanlı anomali tespiti ve davranış analizi
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -250,18 +297,8 @@ export default function Dashboard({ user, onLogout }) {
               </span>
             )}
 
-            <button type="button" onClick={toggleTheme} className={btnGhost} title="Tema değiştir">
-              {theme === 'dark' ? 'Açık tema' : 'Karanlık tema'}
-            </button>
-
-            <button type="button" onClick={toggleSound} className={btnGhost} title="Sesli uyarı">
-              {soundOn ? 'Ses açık' : 'Ses kapalı'}
-            </button>
-
             <span className="text-sm text-[var(--muted)] hidden sm:inline">
-              {user?.username}
-              <span className="opacity-40 mx-1">·</span>
-              {user?.role}
+              {userLabel}
             </span>
 
             {user?.role === 'admin' && (
@@ -297,19 +334,25 @@ export default function Dashboard({ user, onLogout }) {
               <p className="mt-2 text-sm text-[var(--muted)] leading-relaxed">{popup.report}</p>
               <p className="mt-3 text-xs text-[var(--muted)]">
                 {popup.camera_id} · Varlık {popup.track_id} · Güven {Number(popup.confidence_score).toFixed(2)}
-                {popup.snapshot_id ? ' · Görüntü için tıkla' : ''}
               </p>
             </button>
           </div>
         )}
 
-        <AlertFilters filters={filters} onChange={setFilters} cameras={cameras} />
+        <AlertFilters
+          filters={filters}
+          onChange={setFilters}
+          cameras={cameras}
+          exportRows={filteredHistory}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <section className="panel-surface overflow-hidden">
-            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between gap-2">
               <h2 className="font-display text-base font-semibold">Canlı Uyarılar</h2>
-              <span className="text-xs text-[var(--muted)]">{filteredAlerts.length}</span>
+              <span className="text-xs text-[var(--muted)]">
+                {unreadCount} okunmamış · {filteredAlerts.length} toplam
+              </span>
             </div>
             <div className="p-3 max-h-[28rem] overflow-auto">
               {filteredAlerts.length === 0 ? (
@@ -318,31 +361,54 @@ export default function Dashboard({ user, onLogout }) {
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {filteredAlerts.map((a, i) => (
-                    <li key={`${a.track_id}-${a.anomaly_type}-${i}`}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAlert(a)}
-                        className={`w-full text-left rounded-lg bg-[var(--bg2)]/80 border border-[var(--line)] border-l-4 p-3.5 hover:brightness-[1.03] transition ${ANOMALY_ACCENT[a.anomaly_type] || 'border-l-[#e8a54b]'}`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[a.anomaly_type] || 'bg-black/5'}`}>
-                            {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
-                          </span>
-                          <span className="text-xs text-[var(--muted)] shrink-0">{a.camera_id}</span>
+                  {filteredAlerts.map((a, i) => {
+                    const key = alertKey(a)
+                    const isRead = readSet.has(key)
+                    return (
+                      <li key={`${key}-${i}`} className={isRead ? 'alert-card--read' : ''}>
+                        <div
+                          className={`rounded-lg bg-[var(--bg2)]/80 border border-[var(--line)] border-l-4 p-3.5 ${ANOMALY_ACCENT[a.anomaly_type] || 'border-l-[#e8a54b]'}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <button
+                              type="button"
+                              className="text-left flex-1 min-w-0"
+                              onClick={() => setSelectedAlert(a)}
+                            >
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[a.anomaly_type] || 'bg-black/5'}`}>
+                                {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
+                              </span>
+                              <p className="text-sm mt-2 text-[var(--muted)] leading-relaxed">{a.report}</p>
+                              <p className="text-xs text-[var(--muted)] mt-1">{a.camera_id} · Varlık {a.track_id}</p>
+                            </button>
+                            <div className="flex flex-col items-end gap-2 shrink-0">
+                              <span className="text-xs text-[var(--muted)]">{a.camera_id}</span>
+                              {!isRead ? (
+                                <button
+                                  type="button"
+                                  onClick={() => markRead(a)}
+                                  className="px-2 py-1 text-[11px] rounded-md border border-[var(--line)] hover:bg-[var(--bg1)]"
+                                >
+                                  Okundu
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-[var(--muted)]">Okundu</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-sm mt-2 text-[var(--muted)] leading-relaxed">{a.report}</p>
-                      </button>
-                    </li>
-                  ))}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>
           </section>
 
           <section className="panel-surface overflow-hidden">
-            <div className="px-5 py-4 border-b border-[var(--line)]">
+            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
               <h2 className="font-display text-base font-semibold">Geçmiş Kayıtlar</h2>
+              <span className="text-xs text-[var(--muted)]">{filteredHistory.length}</span>
             </div>
             <div className="overflow-auto max-h-[28rem]">
               <table className="w-full text-sm">
@@ -362,27 +428,32 @@ export default function Dashboard({ user, onLogout }) {
                       </td>
                     </tr>
                   ) : (
-                    filteredHistory.map((h) => (
-                      <tr
-                        key={h.id}
-                        className="border-b border-[var(--line)] hover:bg-black/[0.03] cursor-pointer"
-                        onClick={() => setSelectedAlert({
-                          ...h,
-                          report: h.ai_generated_report,
-                        })}
-                      >
-                        <td className="px-5 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
-                          {new Date(h.timestamp).toLocaleString('tr-TR')}
-                        </td>
-                        <td className="px-3 py-3">
-                          {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
-                        </td>
-                        <td className="px-3 py-3 text-[var(--muted)]">{h.camera_id}</td>
-                        <td className="px-5 py-3 text-right tabular-nums">
-                          {h.confidence_score?.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))
+                    filteredHistory.map((h) => {
+                      const isRead = readSet.has(alertKey(h))
+                      return (
+                        <tr
+                          key={h.id}
+                          className={`border-b border-[var(--line)] hover:bg-black/[0.03] cursor-pointer ${isRead ? 'alert-card--read' : ''}`}
+                          onClick={() => setSelectedAlert({
+                            ...h,
+                            report: h.ai_generated_report,
+                          })}
+                        >
+                          <td className="px-5 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
+                            {new Date(h.timestamp).toLocaleString('tr-TR')}
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[h.anomaly_type] || ''}`}>
+                              {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-[var(--muted)]">{h.camera_id}</td>
+                          <td className="px-5 py-3 text-right tabular-nums">
+                            {h.confidence_score?.toFixed(2)}
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -420,7 +491,14 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </main>
 
-      <SnapshotModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
+      <SnapshotModal
+        alert={selectedAlert}
+        history={history}
+        onClose={() => setSelectedAlert(null)}
+        onMarkRead={(a) => {
+          markRead(a)
+        }}
+      />
     </div>
   )
 }
