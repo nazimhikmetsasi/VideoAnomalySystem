@@ -21,7 +21,7 @@ from database.postgres import PostgresRepository
 from database.mongo import MongoRepository
 from llm.reporter import LLMReporter
 from core.logging_config import setup_logging
-from core.push_notifier import send_push_alert
+from core.push_notifier import send_push_alert, status as fcm_status, format_push_message
 from core.camera_config import load_cameras_config
 
 logger = setup_logging('api', 'api.log')
@@ -61,7 +61,8 @@ async def _push_alert(event: dict) -> dict:
         logger.warning("WebSocket loop hazir degil")
 
     logger.info(f"Bildirim yayinlandi | {event['anomaly_type']}")
-    send_push_alert(payload)
+    fcm_result = send_push_alert(payload)
+    payload['fcm'] = fcm_result
     return payload
 
 
@@ -219,14 +220,37 @@ async def internal_alert(event: dict):
     return {'ok': True, 'alert': payload}
 
 
+@app.get('/api/push/status')
+def push_status(user: dict = Depends(get_current_user)):
+    """FCM hazir mi? Android olmadan da kontrol edilir."""
+    st = fcm_status()
+    sample = {
+        'camera_id': 'cam_01',
+        'track_id': 2,
+        'anomaly_type': 'ZONE_VIOLATION',
+        'confidence_score': 0.9,
+        'motion': 'RUNNING',
+    }
+    title, body = format_push_message(sample)
+    return {
+        'fcm': st,
+        'ornek_bildirim': {'title': title, 'body': body},
+        'test_ipucu': (
+            'Android yoksa: Chrome masaustu + FCM_KURULUM.txt '
+            'veya panelden Test Bildirimi + /api/push/status ile metni dogrula.'
+        ),
+    }
+
+
 @app.get('/api/test-alert')
 @app.post('/api/test-alert')
 async def test_alert(user: dict = Depends(require_role('admin'))):
     event = {
         'camera_id': 'cam_01',
-        'track_id': 99,
-        'anomaly_type': 'RUN',
+        'track_id': 2,
+        'anomaly_type': 'ZONE_VIOLATION',
         'confidence_score': 0.95,
+        'motion': 'RUNNING',
         'metrics': {
             'horizontal_velocity': 102.5,
             'vertical_velocity': 8.0,
@@ -239,7 +263,8 @@ async def test_alert(user: dict = Depends(require_role('admin'))):
         'ok': True,
         'message': 'Test bildirimi gonderildi',
         'connected_clients': len(manager.active),
-        'alert': payload
+        'alert': payload,
+        'fcm': payload.get('fcm'),
     }
 
 

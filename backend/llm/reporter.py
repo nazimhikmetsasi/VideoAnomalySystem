@@ -109,12 +109,17 @@ class LLMReporter:
     def _build_prompt(self, event: dict) -> str:
         label = ANOMALY_LABELS.get(event['anomaly_type'], event['anomaly_type'])
         metrics = event.get('metrics') or {}
+        motion = event.get('motion') or event.get('motion_confirmed') or metrics.get('motion')
         return (
-            f"Asagidaki guvenlik kamerasi anomali verisini Turkce, resmi ve anlasilir "
-            f"bir ihbar metnine donustur. Tek paragraf, en fazla 2 cumle.\n"
+            "Sen bir guvenlik izleme sistemisin. Asagidaki anomaliyi kisa, resmi Turkce "
+            "ihbar cumlesine cevir. Tek paragraf, en fazla 2 cumle. "
+            "Mumkunse su tarza yakin yaz: "
+            "'Varlik ID:2 kosarak yasakli alana giris yapti (cam_01). Guven: %95.' "
+            "Uydurma bilgi ekleme; sadece verilen alanlari kullan.\n"
             f"Kamera: {event['camera_id']}\n"
-            f"Kisi ID: {event['track_id']}\n"
-            f"Anomali: {label}\n"
+            f"Varlik ID: {event['track_id']}\n"
+            f"Anomali: {label} ({event.get('anomaly_type')})\n"
+            f"Hareket: {motion or 'bilinmiyor'}\n"
             f"Guven: {event['confidence_score']}\n"
             f"Dikey hiz: {metrics.get('vertical_velocity', 'N/A')}\n"
             f"Yatay hiz: {metrics.get('horizontal_velocity', 'N/A')}\n"

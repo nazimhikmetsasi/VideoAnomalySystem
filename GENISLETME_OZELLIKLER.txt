@@ -10,12 +10,12 @@ Genisletme Ozellikleri (Asama 8)
    Calistir: .\run_multi_kamera.bat
    Dashboard'da kamera listesi gorunur
 
-3) MOBIL BILDIRIM (Firebase FCM)
-   .env:
-     FCM_ENABLED=true
-     FCM_SERVER_KEY=...
-     FCM_TOPIC=anomalies
-   Anomali olunca telefona push gider.
+3) MOBIL BILDIRIM (Firebase FCM HTTP v1)
+   Detay: FCM_KURULUM.txt
+   Legacy Server key YOK — Service account JSON kullan.
+   config/firebase-service-account.json + FCM_ENABLED=true
+   Ornek: "Varlik ID:2 kosarak yasakli alana giris yapti"
+   Android sart degil: /api/push/status ile test.
 
 4) FINE-TUNE + mAP
    .\run_finetune.bat — arka plan egitim

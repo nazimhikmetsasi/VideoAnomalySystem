@@ -1,0 +1,47 @@
+MCBU — Firebase FCM (HTTP v1)
+=============================
+
+Legacy Server key artik kapali. JSON servis hesabi kullanilir.
+
+------------------------------------------------
+SENIN YAPACAGIN ADIMLAR (sirayla)
+------------------------------------------------
+
+1) Firebase Console → mcbu-anomal
+   Project settings (disli) → Service accounts
+
+2) "Generate new private key" → Generate key
+   JSON dosyasi iner (ornek: mcbu-anomal-firebase-adminsdk-xxxxx.json)
+
+3) Dosyayi su isimle kopyala:
+   c:\Users\pc\OneDrive\Masaüstü\VideoAnomalySystem\config\firebase-service-account.json
+
+4) .env icinde:
+   FCM_ENABLED=true
+   FCM_CREDENTIALS_PATH=config/firebase-service-account.json
+   FCM_TOPIC=anomalies
+
+5) Paket:
+   .\venv\Scripts\pip install google-auth
+
+6) API yeniden baslat:
+   .\run_api.bat
+
+7) Panel → Test Bildirimi Gonder
+   veya GET /api/push/status
+   Beklenen: fcm.ready=true, api_mode=http_v1
+   title/body Turkce ornek metin
+
+------------------------------------------------
+ANDROID YOKSA
+------------------------------------------------
+- Metin + sent/error dogrulama yeterli (panel + /api/push/status)
+- Gercek popup icin sonra Chrome token veya emulator eklenir
+- Topic'e abone cihaz yoksa Firebase "mesaj kabul etti" der ama
+  ekranda bildirim gorunmeyebilir — bu normal
+
+------------------------------------------------
+NOT
+------------------------------------------------
+firebase-service-account.json GIT'E EKLENMEZ (.gitignore).
+Secret key icerir; paylasma.

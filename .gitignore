@@ -19,3 +19,5 @@ results/
 *.log
 yolov8n.pt
 yolov8n-pose.pt
+config/firebase-service-account.json
+**/firebase-service-account*.json
