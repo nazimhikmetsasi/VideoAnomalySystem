@@ -25,16 +25,30 @@ const wsUrl = import.meta.env.VITE_WS_URL ||
 
 function showAlert(data, setAlerts, setPopup) {
   if (!data || data.type !== 'anomaly_alert') return
+  const PRIORITY = {
+    RUN_ZONE: 4,
+    FALL: 4,
+    RUN: 3,
+    ZONE_VIOLATION: 2,
+    PERSON_ENTERED: 1,
+  }
   setAlerts((prev) => {
     const tid = data.track_id
     const cam = data.camera_id
     const atype = data.anomaly_type
-    // Ayni kisi + ayni tip: tek kart (WS + DB polling ciftini engeller)
-    const dup = prev.some(
-      (a) => a.track_id === tid && a.camera_id === cam && a.anomaly_type === atype
-    )
-    if (dup) return prev
     if (data.id != null && prev.some((a) => a.id != null && a.id === data.id)) return prev
+
+    // Ayni kisi (track): tek kart — dusuk oncelikli tip gelirse yok say
+    const idx = prev.findIndex((a) => a.track_id === tid && a.camera_id === cam)
+    if (idx >= 0) {
+      const old = prev[idx]
+      const oldP = PRIORITY[old.anomaly_type] || 0
+      const newP = PRIORITY[atype] || 0
+      if (newP <= oldP) return prev
+      const next = [...prev]
+      next[idx] = data
+      return next
+    }
     return [data, ...prev].slice(0, 20)
   })
   setPopup(data)

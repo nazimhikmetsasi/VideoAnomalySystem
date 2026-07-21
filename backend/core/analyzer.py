@@ -9,6 +9,7 @@ from core.motion_classifier import (
     MotionClassifier,
     MOTION_RUNNING,
     MOTION_FALLING,
+    MOTION_WALKING,
 )
 
 logger = logging.getLogger('video_pipeline')
@@ -38,8 +39,12 @@ class AnomalyAnalyzer:
         self.min_run_conf = float(os.getenv('MIN_RUN_CONFIDENCE', 0.55))
         self.frame_w = float(os.getenv('FRAME_WIDTH', 640))
         self.frame_h = float(os.getenv('FRAME_HEIGHT', 480))
+        self.alert_prox_sec = float(os.getenv('ALERT_PROXIMITY_SEC', 3.0))
+        self.alert_prox_px = float(os.getenv('ALERT_PROXIMITY_PX', 220))
         self._known_tracks: set[int] = set()
         self._zone_dwell: dict[str, int] = {}
+        self._alerted_tracks: set[int] = set()
+        self._recent_alert_pos: list[tuple[float, float, float]] = []
         self.motion_classifier = MotionClassifier()
 
         self._last_alert: dict[str, float] = {}
@@ -66,6 +71,41 @@ class AnomalyAnalyzer:
             return False
         self._last_alert[key] = now
         return True
+
+    def _register_alert(self, track_id: int, hip_center: dict):
+        """Bu track bir daha bildirim uretmesin; kisa sure yakin konum spam'ini kes."""
+        self._alerted_tracks.add(track_id)
+        now = time.time()
+        cx = float(hip_center.get('x', 0))
+        cy = float(hip_center.get('y', 0))
+        self._recent_alert_pos.append((now, cx, cy))
+        self._recent_alert_pos = [
+            p for p in self._recent_alert_pos if now - p[0] <= max(self.alert_prox_sec, 3.0)
+        ]
+
+    def _suppress_duplicate(self, track_id: int, hip_center: dict) -> bool:
+        """
+        - Ayni track_id: oturum boyunca tek bildirim
+        - Yeni ID ama ayni konumda cok kisa sure icinde: ID parcalanmasi (spam)
+        Sirali farkli kisiler (kapi, birkac sn ara) engellenmez.
+        """
+        if track_id in self._alerted_tracks:
+            return True
+        cx = float(hip_center.get('x', 0))
+        cy = float(hip_center.get('y', 0))
+        now = time.time()
+        for t, px, py in self._recent_alert_pos:
+            if now - t > self.alert_prox_sec:
+                continue
+            dist = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
+            if dist <= self.alert_prox_px:
+                logger.info(
+                    f"Bildirim bastirildi (yakin spam) | track={track_id} | "
+                    f"mesafe={dist:.0f}px | {self.alert_prox_sec}s icinde"
+                )
+                self._alerted_tracks.add(track_id)
+                return True
+        return False
 
     def _zone_dwell_ok(self, camera_id: str, track_id: int, inside: bool) -> bool:
         """Bolgede art arda N kare kalinca ihlal say."""
@@ -151,16 +191,24 @@ class AnomalyAnalyzer:
                 ),
             )
         elif zone_hit:
-            anomaly_type = self.ANOMALY_ZONE
-            confidence = 0.85
+            # Neredeyse tam ekran bolgede "duruyor" spam olmasin — hareket şart
+            moving = confirmed in (MOTION_RUNNING, MOTION_WALKING) or norm_h_speed >= 20
+            if moving:
+                anomaly_type = self.ANOMALY_ZONE
+                confidence = 0.85
 
         if not anomaly_type:
             return None
 
-        # Ayni track icin tek bildirim penceresi (tip fark etmez)
+        if self._suppress_duplicate(track_id, hip_center):
+            return None
+
+        # Ayni track icin ek cooldown (yedek)
         key = f"{camera_id}_{track_id}"
         if not self._cooldown_ok(key):
             return None
+
+        self._register_alert(track_id, hip_center)
 
         event = {
             'camera_id': camera_id,

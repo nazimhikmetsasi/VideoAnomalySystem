@@ -124,13 +124,17 @@ class VideoKafkaProducer:
             frame = cv2.cvtColor(cv2.merge((clahe.apply(l), a, b)), cv2.COLOR_LAB2BGR)
 
             # YOLO + DeepSORT
-            detections = self.detector.detect(frame)
-            tracks = self.tracker.update(
-                detections,
-                frame,
-                frame_idx=frame_count,
-                total_frames=self.total_frames,
-            )
+            try:
+                detections = self.detector.detect(frame)
+                tracks = self.tracker.update(
+                    detections,
+                    frame,
+                    frame_idx=frame_count,
+                    total_frames=self.total_frames,
+                )
+            except Exception as e:
+                logger.exception(f"Takip hatasi (kare={frame_count}): {e}")
+                continue
             frame_poses = self.pose_estimator.extract_all(frame)
 
             display = frame.copy()

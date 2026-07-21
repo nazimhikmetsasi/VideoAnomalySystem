@@ -272,13 +272,23 @@ def test_track_state_jump_detection():
 
 
 def test_tracker_reuses_id_after_exit():
-    """Yeni DeepSORT track'leri ayri display ID almali (ardisik kisiler karismasin)."""
-    from core.tracker import PersonTracker
-    tr = PersonTracker()
-    assert tr._display_id(10) == 1
-    assert tr._display_id(20) == 2
-    assert tr._display_id(10) == 1
-    assert tr._display_id(30) == 3
+    """ReID: ayni embedding -> ayni ID; belirsiz/yakin ikinci aday -> yeni ID."""
+    from core.reid_gallery import ReIDGallery
+    import numpy as np
+    g = ReIDGallery()
+    g._emb = {}
+    g._next_id = 1
+    g.path = __import__('pathlib').Path('data/_test_reid.npz')
+    a = np.random.default_rng(0).random(1280).astype(np.float32)
+    b = np.random.default_rng(1).random(1280).astype(np.float32)
+    id1 = g.alloc(a, set())
+    assert id1 == 1
+    # ayni kisi tekrar
+    id1b = g.alloc(a, set())
+    assert id1b == 1
+    # farkli kisi
+    id2 = g.alloc(b, set())
+    assert id2 == 2
 
 
 def test_sliding_window_filter():

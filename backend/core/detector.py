@@ -47,13 +47,17 @@ def _centers_close(a: list, b: list, factor: float = 0.5) -> bool:
     return dist <= ref * factor
 
 
+def _bbox_area(b: list) -> float:
+    return max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+
+
 def merge_overlapping_detections(
     detections: list,
     iou_thr: float = 0.5,
     contain_thr: float = 0.7,
     near_factor: float = 0.0,
 ) -> list:
-    """Ayni kisiye ait ust uste kutulari birlestir (yakinlik ile degil, IoU/containment)."""
+    """Ust uste kutularda yuksek guveni tut; union ile buyutme."""
     if len(detections) <= 1:
         return detections
     ordered = sorted(detections, key=lambda d: d['confidence'], reverse=True)
@@ -64,15 +68,12 @@ def merge_overlapping_detections(
             iou = _bbox_iou(det['bbox'], k['bbox'])
             cont = _bbox_containment(det['bbox'], k['bbox'])
             if iou >= iou_thr or cont >= contain_thr:
-                x1 = min(k['bbox'][0], det['bbox'][0])
-                y1 = min(k['bbox'][1], det['bbox'][1])
-                x2 = max(k['bbox'][2], det['bbox'][2])
-                y2 = max(k['bbox'][3], det['bbox'][3])
-                kept[i] = {
-                    **k,
-                    'bbox': [x1, y1, x2, y2],
-                    'confidence': max(k['confidence'], det['confidence']),
-                }
+                # Union yok — kutuyu sisirme; daha guvenli / kucuk makul kutuyu tut
+                if det['confidence'] > k['confidence'] or (
+                    abs(det['confidence'] - k['confidence']) < 0.05
+                    and _bbox_area(det['bbox']) < _bbox_area(k['bbox'])
+                ):
+                    kept[i] = {**det}
                 dup = True
                 break
         if not dup:
@@ -114,10 +115,21 @@ class HumanDetector:
             verbose=False,
         )
 
+        fh, fw = frame.shape[:2]
+        frame_area = float(max(fh * fw, 1))
+        max_area_ratio = float(os.getenv('DET_MAX_AREA_RATIO', 0.55))
+        max_aspect = float(os.getenv('DET_MAX_ASPECT', 4.0))
+
         detections = []
         for result in results:
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                bw, bh = max(0, x2 - x1), max(0, y2 - y1)
+                area = bw * bh
+                aspect = bw / max(bh, 1)
+                # Sadece asiri buyuk FP (kulube/araba); normal kisi elenmesin
+                if area > frame_area * max_area_ratio or aspect > max_aspect or aspect < 0.12:
+                    continue
                 confidence = float(box.conf[0])
                 detections.append({
                     'bbox': [x1, y1, x2, y2],
