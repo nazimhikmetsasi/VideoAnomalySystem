@@ -15,7 +15,7 @@ export default function MetricsPanel() {
         if (evalRes.ok) setMetrics(await evalRes.json())
         if (trainRes.ok) setTraining(await trainRes.json())
       } catch (e) {
-        console.error('Metrikler alinamadi', e)
+        console.error('Metrikler alınamadı', e)
       }
     }
     load()
@@ -27,32 +27,38 @@ export default function MetricsPanel() {
   const d = metrics?.available ? metrics.results?.detection : null
 
   return (
-    <section className="bg-slate-800 rounded-xl p-5 mb-6">
-      <h2 className="text-lg font-semibold mb-4">Pilot Metrikler</h2>
-      {!metrics?.available ? (
-        <p className="text-slate-400 text-sm">{metrics?.message || 'Henuz pilot degerlendirme yok. run_pilot_eval.bat calistirin.'}</p>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <MetricCard label="Precision" value={a?.precision} />
-          <MetricCard label="Recall" value={a?.recall} />
-          <MetricCard label="Accuracy" value={a?.accuracy} />
-          <MetricCard label="Latency (ms)" value={a?.avg_frame_latency_ms} />
-          <MetricCard label="mAP@0.5" value={d?.map50} />
-          <MetricCard label="mAP@0.5:0.95" value={d?.map50_95} />
-          <MetricCard label="Video sayisi" value={metrics.results?.videos_processed} />
-          <MetricCard label="F1" value={a?.f1} />
-        </div>
-      )}
-      {training && (
-        <div className="mt-4 pt-4 border-t border-slate-700 text-sm text-slate-300">
-          <span className="font-medium">Model: </span>
-          {training.finetuned_ready ? (
-            <span className="text-emerald-400">Fine-tune hazir — {training.best_finetuned}</span>
-          ) : (
-            <span>Aktif: {training.current_model} | Fine-tune: {training.status}</span>
-          )}
-        </div>
-      )}
+    <section className="panel-surface overflow-hidden">
+      <div className="px-5 py-4 border-b border-[var(--line)]">
+        <h2 className="font-display text-base font-semibold">Pilot Metrikler</h2>
+      </div>
+      <div className="p-5">
+        {!metrics?.available ? (
+          <p className="text-[var(--muted)] text-sm">
+            {metrics?.message || 'Henüz pilot değerlendirme yok. run_pilot_eval.bat çalıştırın.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <MetricCard label="Precision" value={a?.precision} />
+            <MetricCard label="Recall" value={a?.recall} />
+            <MetricCard label="Accuracy" value={a?.accuracy} />
+            <MetricCard label="Gecikme (ms)" value={a?.avg_frame_latency_ms} />
+            <MetricCard label="mAP@0.5" value={d?.map50} />
+            <MetricCard label="mAP@0.5:0.95" value={d?.map50_95} />
+            <MetricCard label="Video sayısı" value={metrics.results?.videos_processed} />
+            <MetricCard label="F1" value={a?.f1} />
+          </div>
+        )}
+        {training && (
+          <p className="mt-4 pt-4 border-t border-[var(--line)] text-sm text-[var(--muted)] break-all">
+            <span className="text-[var(--text)]/80 font-medium">Model: </span>
+            {training.finetuned_ready ? (
+              <span className="text-[var(--accent)]">Fine-tune hazır — {training.best_finetuned}</span>
+            ) : (
+              <span>Aktif: {training.current_model} · Fine-tune: {training.status}</span>
+            )}
+          </p>
+        )}
+      </div>
     </section>
   )
 }
@@ -60,9 +66,9 @@ export default function MetricsPanel() {
 function MetricCard({ label, value }) {
   const display = value === null || value === undefined ? '—' : value
   return (
-    <div className="bg-slate-700 rounded-lg p-3">
-      <div className="text-slate-400 text-xs">{label}</div>
-      <div className="text-lg font-semibold mt-1">{display}</div>
+    <div className="rounded-lg border border-[var(--line)] bg-[var(--bg2)]/60 px-3.5 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">{label}</div>
+      <div className="text-lg font-semibold mt-1 tabular-nums">{display}</div>
     </div>
   )
 }

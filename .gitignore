@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .env
 data/test_videos/
+data/live/
+data/snapshots/
 *.pt
 *.trt
 *.task

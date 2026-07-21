@@ -14,11 +14,11 @@ FCM_LEGACY_URL = 'https://fcm.googleapis.com/fcm/send'
 FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
 
 ANOMALY_TR = {
-    'FALL': 'dusme',
-    'RUN': 'kosma',
-    'ZONE_VIOLATION': 'yasakli alan ihlali',
-    'RUN_ZONE': 'kosarak alan ihlali',
-    'PERSON_ENTERED': 'alana giris',
+    'FALL': 'düşme',
+    'RUN': 'koşma',
+    'ZONE_VIOLATION': 'yasaklı alan ihlali',
+    'RUN_ZONE': 'koşarak alan ihlali',
+    'PERSON_ENTERED': 'alana giriş',
 }
 
 
@@ -49,23 +49,23 @@ def format_push_message(payload: dict) -> tuple[str, str]:
     title = f'MCBU Alarm: {label.upper()}'
 
     if atype == 'RUN_ZONE' or (atype == 'ZONE_VIOLATION' and motion in ('RUNNING', 'RUN')):
-        body = f'Varlik ID:{track_id} kosarak yasakli alana giris yapti ({camera_id}).'
+        body = f'Varlık ID:{track_id} koşarak yasaklı alana giriş yaptı ({camera_id}).'
     elif atype == 'ZONE_VIOLATION':
-        body = f'Varlik ID:{track_id} yasakli alana giris yapti ({camera_id}).'
+        body = f'Varlık ID:{track_id} yasaklı alana giriş yaptı ({camera_id}).'
     elif atype == 'RUN' and payload.get('in_zone'):
-        body = f'Varlik ID:{track_id} kosarak yasakli alana giris yapti ({camera_id}).'
+        body = f'Varlık ID:{track_id} koşarak yasaklı alana giriş yaptı ({camera_id}).'
     elif atype == 'RUN':
-        body = f'Varlik ID:{track_id} kosma hareketi sergiledi ({camera_id}).'
+        body = f'Varlık ID:{track_id} koşma hareketi sergiledi ({camera_id}).'
     elif atype == 'FALL':
-        body = f'Varlik ID:{track_id} dusme hareketi tespit edildi ({camera_id}).'
+        body = f'Varlık ID:{track_id} düşme hareketi tespit edildi ({camera_id}).'
     elif atype == 'PERSON_ENTERED':
-        body = f'Varlik ID:{track_id} kamera gorus alanina girdi ({camera_id}).'
+        body = f'Varlık ID:{track_id} kamera görüş alanına girdi ({camera_id}).'
     else:
         report = (payload.get('report') or payload.get('ai_generated_report') or '').strip()
-        body = report[:180] if report else f'Varlik ID:{track_id} — {label} ({camera_id}).'
+        body = report[:180] if report else f'Varlık ID:{track_id} — {label} ({camera_id}).'
 
     try:
-        body = f'{body} Guven: %{int(round(float(conf) * 100))}.'
+        body = f'{body} Güven: %{int(round(float(conf) * 100))}.'
     except (TypeError, ValueError):
         pass
 

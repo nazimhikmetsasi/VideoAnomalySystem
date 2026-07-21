@@ -20,6 +20,7 @@ from core.visualizer import (
 from core.notifier import notify_api
 from core.logging_config import setup_logging
 from core.video_source import open_video_capture, describe_source
+from core.frame_store import save_live_frame, save_alert_snapshot
 
 logger = setup_logging('video_pipeline', 'pipeline.log')
 
@@ -219,6 +220,9 @@ class VideoKafkaProducer:
                     self._latest_anomaly = anomaly
                     display = draw_anomaly_alert(display, anomaly)
                     landmarks = pose_data['landmarks'] if pose_data else []
+                    snap_id = save_alert_snapshot(self.camera_id, display, anomaly.get('track_id'))
+                    if snap_id:
+                        anomaly['snapshot_id'] = snap_id
                     # Panel icin dogrudan API; Kafka anomaly cift bildirim uretmesin
                     notify_api(anomaly, landmarks)
                     if os.getenv('ANOMALY_KAFKA_PUBLISH', 'false').lower() == 'true':
@@ -230,6 +234,8 @@ class VideoKafkaProducer:
             self.kinematics.clear_stale(active_ids)
             self.analyzer.clear_tracks(active_ids)
             self.track_state.clear_stale(active_ids)
+
+            save_live_frame(self.camera_id, display, every_n=5, frame_idx=frame_count)
 
             if self.show_window:
                 cv2.imshow(self.window_title, display)

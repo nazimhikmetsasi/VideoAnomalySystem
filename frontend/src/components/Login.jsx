@@ -20,45 +20,64 @@ export default function Login({ onLogin }) {
       })
       const data = await res.json()
       if (!data.ok) {
-        setError(data.message || 'Giris basarisiz')
+        setError(data.message || 'Giriş başarısız')
         return
       }
       setToken(data.token)
       onLogin(data)
     } catch {
-      setError('API baglantisi yok')
+      setError('API bağlantısı yok')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-      <form onSubmit={submit} className="bg-slate-800 rounded-xl p-8 w-full max-w-md border border-slate-700">
-        <h1 className="text-xl font-bold text-white mb-1">MCBU Guvenlik Paneli</h1>
-        <p className="text-slate-400 text-sm mb-6">Giris yapin</p>
-        {error && <div className="mb-4 p-3 bg-red-900/40 border border-red-500 rounded text-sm">{error}</div>}
-        <label className="block text-sm text-slate-300 mb-1">Kullanici adi</label>
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <form
+        onSubmit={submit}
+        className="panel-surface w-full max-w-md p-8"
+      >
+        <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--accent)] font-semibold mb-2">
+          MCBU
+        </p>
+        <h1 className="font-display text-2xl font-semibold mb-1">Güvenlik Paneli</h1>
+        <p className="text-[var(--muted)] text-sm mb-7">Devam etmek için giriş yapın</p>
+
+        {error && (
+          <div className="mb-4 px-3 py-2.5 rounded-lg border border-rose-500/40 bg-rose-500/10 text-sm text-rose-200">
+            {error}
+          </div>
+        )}
+
+        <label className="block text-sm text-[var(--muted)] mb-1.5">Kullanıcı adı</label>
         <input
-          className="w-full mb-4 px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white"
+          className="w-full mb-4 px-3.5 py-2.5 rounded-lg bg-[var(--bg2)] border border-[var(--line)] text-white outline-none focus:border-[var(--accent)] transition"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
         />
-        <label className="block text-sm text-slate-300 mb-1">Sifre</label>
+
+        <label className="block text-sm text-[var(--muted)] mb-1.5">Şifre</label>
         <input
           type="password"
-          className="w-full mb-6 px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white"
+          className="w-full mb-6 px-3.5 py-2.5 rounded-lg bg-[var(--bg2)] border border-[var(--line)] text-white outline-none focus:border-[var(--accent)] transition"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
         />
+
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium disabled:opacity-50"
+          className="w-full py-2.5 rounded-lg font-medium bg-[var(--accent)] text-[#04120f] hover:brightness-110 transition disabled:opacity-50"
         >
-          {loading ? 'Giris...' : 'Giris Yap'}
+          {loading ? 'Giriş yapılıyor…' : 'Giriş Yap'}
         </button>
-        <p className="text-xs text-slate-500 mt-4">Varsayilan: admin / admin123</p>
+
+        <p className="text-xs text-[var(--muted)] mt-5 text-center">
+          Varsayılan: admin / admin123
+        </p>
       </form>
     </div>
   )

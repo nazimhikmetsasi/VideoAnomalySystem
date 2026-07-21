@@ -13,11 +13,11 @@ MOTION_COLORS = {
 
 MOTION_LABELS_TR = {
     'STANDING': 'Duruyor',
-    'WALKING': 'Yuruyor',
-    'RUNNING': 'Kosuyor',
-    'FALLING': 'Dusuyor',
+    'WALKING': 'Yürüyor',
+    'RUNNING': 'Koşuyor',
+    'FALLING': 'Düşüyor',
     'SITTING': 'Oturuyor',
-    'CROUCHING': 'Egiliyor',
+    'CROUCHING': 'Eğiliyor',
     'UNKNOWN': 'Takipte',
 }
 

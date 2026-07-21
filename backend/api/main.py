@@ -9,6 +9,7 @@ load_env()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from kafka import KafkaConsumer
 from pydantic import BaseModel
 
@@ -23,6 +24,8 @@ from llm.reporter import LLMReporter
 from core.logging_config import setup_logging
 from core.push_notifier import send_push_alert, status as fcm_status, format_push_message
 from core.camera_config import load_cameras_config
+from core.frame_store import live_path, snapshot_path
+from pathlib import Path
 
 logger = setup_logging('api', 'api.log')
 
@@ -54,7 +57,8 @@ async def _push_alert(event: dict) -> dict:
         'motion': event.get('motion') or event.get('motion_confirmed'),
         'in_zone': event.get('in_zone'),
         'report': report,
-        'timestamp': event.get('timestamp')
+        'timestamp': event.get('timestamp'),
+        'snapshot_id': event.get('snapshot_id'),
     }
 
     global _main_loop
@@ -221,6 +225,46 @@ def list_anomalies(limit: int = 50, user: dict = Depends(get_current_user)):
     return {'items': postgres_repo.list_recent(limit)}
 
 
+@app.get('/api/zones')
+def get_zones(user: dict = Depends(get_current_user)):
+    """Yasakli bolge poligonlari — panel zone haritasi icin."""
+    root = Path(__file__).resolve().parents[2]
+    path = os.getenv('ZONE_CONFIG_PATH', 'config/zones.json')
+    cfg = Path(path)
+    if not cfg.is_absolute():
+        cfg = root / cfg
+    if not cfg.exists():
+        return {
+            'frame_width': int(os.getenv('FRAME_WIDTH', 960)),
+            'frame_height': int(os.getenv('FRAME_HEIGHT', 540)),
+            'zones': {},
+        }
+    with open(cfg, encoding='utf-8') as f:
+        data = json.load(f)
+    zones = {k: v for k, v in data.items() if not str(k).startswith('_')}
+    return {
+        'frame_width': int(os.getenv('FRAME_WIDTH', 960)),
+        'frame_height': int(os.getenv('FRAME_HEIGHT', 540)),
+        'zones': zones,
+    }
+
+
+@app.get('/api/media/live/{camera_id}')
+def media_live(camera_id: str, user: dict = Depends(get_current_user)):
+    path = live_path(camera_id)
+    if not path:
+        return Response(status_code=404, content=b'Canli kare yok')
+    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/api/media/snapshot/{snapshot_id}')
+def media_snapshot(snapshot_id: str, user: dict = Depends(get_current_user)):
+    path = snapshot_path(snapshot_id)
+    if not path:
+        return Response(status_code=404, content=b'Anlik goruntu yok')
+    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=60'})
+
+
 @app.post('/api/internal/alert')
 async def internal_alert(event: dict):
     """Kamera pipeline'dan dogrudan bildirim alir."""
@@ -239,6 +283,7 @@ async def internal_alert(event: dict):
             'confidence_score': event.get('confidence_score'),
             'report': f"Alarm: {event.get('anomaly_type')} (track {event.get('track_id')})",
             'timestamp': event.get('timestamp'),
+            'snapshot_id': event.get('snapshot_id'),
         }
         try:
             await manager.broadcast(fallback)

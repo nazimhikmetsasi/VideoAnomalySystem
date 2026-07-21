@@ -2,7 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+[data-theme='dark'] {
+  --bg0: #0c1118;
+  --bg1: #121a24;
+  --bg2: #182231;
+  --line: rgba(148, 163, 184, 0.14);
+  --text: #e8eef6;
+  --muted: #8b9bb0;
+  --accent: #3d9a8b;
+  --accent-2: #e8a54b;
+  --danger: #e05656;
+  --panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --chart-track: rgba(148, 163, 184, 0.15);
+}
+
+[data-theme='light'] {
+  --bg0: #f3f1eb;
+  --bg1: #fffcf7;
+  --bg2: #f0ebe3;
+  --line: rgba(40, 50, 65, 0.12);
+  --text: #1c2430;
+  --muted: #5c6b7c;
+  --accent: #2f7d71;
+  --accent-2: #c47d2c;
+  --danger: #c94444;
+  --panel-shadow: 0 10px 30px rgba(28, 36, 48, 0.08);
+  --chart-track: rgba(28, 36, 48, 0.08);
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: 'Figtree', system-ui, sans-serif;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, color-mix(in srgb, var(--accent-2) 12%, transparent), transparent 50%),
+    var(--bg0);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+h1, h2, h3, .font-display {
+  font-family: 'Outfit', 'Figtree', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.toast-in {
+  animation: toast-in 0.28s ease-out;
+}
+
+.panel-surface {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  box-shadow: var(--panel-shadow);
+}
+
+.live-preview-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 260px;
+  max-height: 380px;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.live-preview-img {
+  display: block;
+  margin: 0 auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 356px;
+  object-fit: contain;
+  object-position: center;
 }

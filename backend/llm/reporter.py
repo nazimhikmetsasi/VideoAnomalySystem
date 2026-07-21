@@ -6,11 +6,11 @@ import httpx
 logger = logging.getLogger('api')
 
 ANOMALY_LABELS = {
-    'FALL': 'yere dusme',
-    'PERSON_ENTERED': 'kisi kareye girdi',
-    'RUN': 'hizli kosma',
-    'ZONE_VIOLATION': 'yasakli alan ihlali',
-    'RUN_ZONE': 'kosarak yasakli alan ihlali',
+    'FALL': 'yere düşme',
+    'PERSON_ENTERED': 'kişi kareye girdi',
+    'RUN': 'hızlı koşma',
+    'ZONE_VIOLATION': 'yasaklı alan ihlali',
+    'RUN_ZONE': 'koşarak yasaklı alan ihlali',
 }
 
 
@@ -200,19 +200,19 @@ class LLMReporter:
         in_zone = event.get('in_zone')
 
         if atype == 'RUN_ZONE' or (atype == 'ZONE_VIOLATION' and motion in ('RUNNING', 'RUN')):
-            action = 'kosarak yasakli alana giris yapti'
+            action = 'koşarak yasaklı alana giriş yaptı'
         elif atype == 'RUN' and in_zone:
-            action = 'kosarak yasakli alana giris yapti'
+            action = 'koşarak yasaklı alana giriş yaptı'
         elif atype == 'RUN':
-            action = 'hizli kosma hareketi sergiledi'
+            action = 'hızlı koşma hareketi sergiledi'
         elif atype == 'ZONE_VIOLATION':
-            action = 'yasakli alana giris yapti'
+            action = 'yasaklı alana giriş yaptı'
         elif atype == 'FALL':
-            action = 'dusme hareketi sergiledi'
+            action = 'düşme hareketi sergiledi'
         else:
             label = ANOMALY_LABELS.get(atype, atype)
             action = f'{label} tespit edildi'
 
         return (
-            f"Varlik ID:{tid} {action} ({cam}). Guven skoru: {score:.2f}."
+            f"Varlık ID:{tid} {action} ({cam}). Güven skoru: {score:.2f}."
         )

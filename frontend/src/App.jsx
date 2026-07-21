@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import { apiFetch, clearToken, getToken } from './api'
+import { applyTheme, getStoredTheme } from './constants'
 
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    applyTheme(getStoredTheme())
+  }, [])
 
   useEffect(() => {
     const init = async () => {
@@ -37,7 +42,11 @@ export default function App() {
   }, [])
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">Yukleniyor...</div>
+    return (
+      <div className="min-h-screen text-[var(--text)] flex items-center justify-center text-[var(--muted)]">
+        Yükleniyor…
+      </div>
+    )
   }
 
   if (!user) {
