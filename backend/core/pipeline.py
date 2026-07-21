@@ -20,7 +20,7 @@ from core.visualizer import (
 from core.notifier import notify_api
 from core.logging_config import setup_logging
 from core.video_source import open_video_capture, describe_source
-from core.frame_store import save_live_frame, save_alert_snapshot
+from core.frame_store import save_live_frame, save_alert_snapshot, maybe_save_entity_gallery
 
 logger = setup_logging('video_pipeline', 'pipeline.log')
 
@@ -235,6 +235,10 @@ class VideoKafkaProducer:
             self.analyzer.clear_tracks(active_ids)
             self.track_state.clear_stale(active_ids)
 
+            # Panel galerisi: net gorunen varlik anlari
+            maybe_save_entity_gallery(
+                self.camera_id, display, tracks, motion_map, frame_idx=frame_count,
+            )
             save_live_frame(self.camera_id, display, every_n=5, frame_idx=frame_count)
 
             if self.show_window:

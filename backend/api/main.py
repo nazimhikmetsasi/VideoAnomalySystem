@@ -25,7 +25,7 @@ from core.logging_config import setup_logging
 from core.push_notifier import send_push_alert, status as fcm_status, format_push_message
 from core.phone_notifier import send_phone_alert, phone_status
 from core.camera_config import load_cameras_config
-from core.frame_store import live_path, snapshot_path
+from core.frame_store import live_path, snapshot_path, gallery_path, list_gallery
 from pathlib import Path
 
 logger = setup_logging('api', 'api.log')
@@ -36,7 +36,27 @@ llm_reporter = LLMReporter()
 
 
 async def _push_alert(event: dict) -> dict:
-    """DB kaydi + WebSocket yayini (LLM/FCM event loop'u bloklamasin)."""
+    """DB kaydi + WebSocket + telefon (Telegram). Telefon erken gonderilir."""
+    phone_result = None
+    try:
+        # Once telefona: LLM/DB yavas veya hata verse bile alarm dussun
+        phone_result = await asyncio.to_thread(send_phone_alert, {
+            'camera_id': event.get('camera_id'),
+            'track_id': event.get('track_id'),
+            'anomaly_type': event.get('anomaly_type'),
+            'confidence_score': event.get('confidence_score'),
+            'motion': event.get('motion') or event.get('motion_confirmed'),
+            'in_zone': event.get('in_zone'),
+            'report': event.get('ai_generated_report') or event.get('report'),
+        })
+        if phone_result.get('sent'):
+            logger.info(f"Telefon bildirimi OK | {phone_result.get('telegram')}")
+        else:
+            logger.warning(f"Telefon bildirimi yok | {phone_result.get('error') or phone_result}")
+    except Exception as e:
+        logger.error(f"Telefon bildirimi hatasi: {e}")
+        phone_result = {'sent': False, 'error': str(e)}
+
     # Gemini senkron HTTP — thread'de calistir ki panel donmasin
     report = await asyncio.to_thread(llm_reporter.generate_report, event)
     event['ai_generated_report'] = report
@@ -69,8 +89,11 @@ async def _push_alert(event: dict) -> dict:
         logger.warning("WebSocket loop hazir degil")
 
     logger.info(f"Bildirim yayinlandi | {event['anomaly_type']} | track={event.get('track_id')}")
-    fcm_result = await asyncio.to_thread(send_push_alert, payload)
-    phone_result = await asyncio.to_thread(send_phone_alert, payload)
+    try:
+        fcm_result = await asyncio.to_thread(send_push_alert, payload)
+    except Exception as e:
+        logger.error(f"FCM hatasi (Telegram etkilenmez): {e}")
+        fcm_result = {'sent': False, 'error': str(e)}
     payload['fcm'] = fcm_result
     payload['phone'] = phone_result
     return payload
@@ -260,6 +283,21 @@ def media_live(camera_id: str, user: dict = Depends(get_current_user)):
     return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
 
 
+@app.get('/api/media/gallery/{camera_id}')
+def media_gallery_list(camera_id: str, user: dict = Depends(get_current_user), limit: int = 40):
+    """Net varlik anlarinin listesi (panel oklarla gezer)."""
+    items = list_gallery(camera_id, limit=min(max(limit, 1), 80))
+    return {'items': items, 'count': len(items)}
+
+
+@app.get('/api/media/gallery/image/{gallery_id}')
+def media_gallery_image(gallery_id: str, user: dict = Depends(get_current_user)):
+    path = gallery_path(gallery_id)
+    if not path:
+        return Response(status_code=404, content=b'Galeri goruntusu yok')
+    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=30'})
+
+
 @app.get('/api/media/snapshot/{snapshot_id}')
 def media_snapshot(snapshot_id: str, user: dict = Depends(get_current_user)):
     path = snapshot_path(snapshot_id)
@@ -276,7 +314,13 @@ async def internal_alert(event: dict):
         return {'ok': True, 'alert': payload}
     except Exception as e:
         logger.error(f"internal/alert hatasi: {e}")
-        # Panel yine de bir sey gorsun — minimal yayin
+        # LLM/DB patlasa bile telefona dussun
+        try:
+            phone_result = await asyncio.to_thread(send_phone_alert, event)
+            logger.info(f"Fallback telefon | {phone_result}")
+        except Exception as pe:
+            logger.error(f"Fallback telefon hatasi: {pe}")
+            phone_result = {'sent': False, 'error': str(pe)}
         fallback = {
             'type': 'anomaly_alert',
             'id': None,
@@ -287,6 +331,7 @@ async def internal_alert(event: dict):
             'report': f"Alarm: {event.get('anomaly_type')} (track {event.get('track_id')})",
             'timestamp': event.get('timestamp'),
             'snapshot_id': event.get('snapshot_id'),
+            'phone': phone_result,
         }
         try:
             await manager.broadcast(fallback)
@@ -349,6 +394,7 @@ async def test_alert(user: dict = Depends(require_role('admin'))):
         'connected_clients': len(manager.active),
         'alert': payload,
         'fcm': payload.get('fcm'),
+        'phone': payload.get('phone'),
     }
 
 

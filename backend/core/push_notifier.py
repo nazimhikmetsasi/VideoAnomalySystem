@@ -32,7 +32,7 @@ def _credentials_path() -> Path | None:
         candidate = _project_root() / 'config' / 'firebase-service-account.json'
         return candidate if candidate.exists() else None
     path = Path(raw)
-    if not path.is_abs():
+    if not path.is_absolute():
         path = _project_root() / path
     return path if path.exists() else None
 

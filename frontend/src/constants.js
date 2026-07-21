@@ -84,22 +84,97 @@ export function applyTheme(theme) {
   localStorage.setItem(THEME_KEY, theme)
 }
 
+let _alarmAudio = null
+let _alarmUnlocked = false
+
+/** PCM siren WAV (HTML Audio — WebAudio kilidine takilmaz). */
+function buildAlarmWavUrl() {
+  const sampleRate = 22050
+  const duration = 2.6
+  const n = Math.floor(sampleRate * duration)
+  const dataSize = n * 2
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buffer)
+
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeStr(36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  const amp = 0.32
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const freq = (Math.floor(t / 0.2) % 2 === 0) ? 980 : 560
+    const phase = (i % Math.max(1, Math.floor(sampleRate / freq))) < (sampleRate / freq) / 2 ? 1 : -1
+    // Yumusak fade in/out
+    let env = 1
+    if (t < 0.05) env = t / 0.05
+    else if (t > duration - 0.2) env = Math.max(0, (duration - t) / 0.2)
+    const sample = Math.max(-1, Math.min(1, phase * amp * env))
+    view.setInt16(44 + i * 2, sample * 0x7fff, true)
+  }
+
+  const blob = new Blob([buffer], { type: 'audio/wav' })
+  return URL.createObjectURL(blob)
+}
+
+function getAlarmAudio() {
+  if (!_alarmAudio) {
+    _alarmAudio = new Audio(buildAlarmWavUrl())
+    _alarmAudio.preload = 'auto'
+  }
+  return _alarmAudio
+}
+
+/** Tarayici ses kilidini ac (kullanici tiklamasi). */
+export function unlockAlertSound() {
+  _alarmUnlocked = true
+  try {
+    const a = getAlarmAudio()
+    a.muted = true
+    const p = a.play()
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        a.pause()
+        a.currentTime = 0
+        a.muted = false
+      }).catch(() => {
+        a.muted = false
+      })
+    } else {
+      a.muted = false
+    }
+  } catch {
+    /* sessiz */
+  }
+}
+
+/** Uzun siren alarmı (~2.6 sn). */
 export function playAlertBeep() {
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext
-    if (!Ctx) return
-    const ctx = new Ctx()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
-    osc.frequency.value = 880
-    gain.gain.value = 0.04
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start()
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18)
-    osc.stop(ctx.currentTime + 0.2)
-    setTimeout(() => ctx.close(), 300)
+    const a = getAlarmAudio()
+    a.muted = false
+    a.volume = 0.85
+    a.currentTime = 0
+    const p = a.play()
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        // Ilk engelde kilidi zorla acmayi dene
+        if (!_alarmUnlocked) unlockAlertSound()
+      })
+    }
   } catch {
     /* sessiz */
   }

@@ -5,6 +5,7 @@ __pycache__/
 data/test_videos/
 data/live/
 data/snapshots/
+data/gallery/
 *.pt
 *.trt
 *.task

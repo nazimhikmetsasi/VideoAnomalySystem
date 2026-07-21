@@ -63,23 +63,30 @@ def send_telegram(title: str, body: str) -> dict:
     if not token or not chat_id:
         return {'sent': False, 'error': 'TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik'}
 
-    text = f"🚨 *{title}*\n\n{body}"
+    # Duz metin — Markdown ozel karakterleri ( _ * ) yuzunden 400 hatasi olmasin
+    text = f"🚨 {title}\n\n{body}"
     url = f'https://api.telegram.org/bot{token}/sendMessage'
     try:
-        with httpx.Client(timeout=8.0) as client:
+        with httpx.Client(timeout=12.0) as client:
             resp = client.post(url, json={
                 'chat_id': chat_id,
                 'text': text,
-                'parse_mode': 'Markdown',
                 'disable_web_page_preview': True,
             })
-        if resp.status_code == 200 and resp.json().get('ok'):
+        data = {}
+        try:
+            data = resp.json()
+        except Exception:
+            pass
+        if resp.status_code == 200 and data.get('ok'):
             logger.info(f"Telegram gonderildi | chat={chat_id}")
             return {'sent': True, 'channel': 'telegram'}
+        err = data.get('description') or resp.text[:200]
+        logger.warning(f"Telegram basarisiz | HTTP {resp.status_code} | {err}")
         return {
             'sent': False,
             'channel': 'telegram',
-            'error': f'HTTP {resp.status_code}: {resp.text[:200]}',
+            'error': f'HTTP {resp.status_code}: {err}',
         }
     except Exception as e:
         logger.warning(f"Telegram hatasi: {e}")

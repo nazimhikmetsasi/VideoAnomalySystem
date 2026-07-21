@@ -17,6 +17,7 @@ import {
   getStoredTheme,
   applyTheme,
   playAlertBeep,
+  unlockAlertSound,
   alertKey,
   loadReadSet,
   saveReadSet,
@@ -35,6 +36,8 @@ const MERGE_PRIORITY = {
 
 function showAlert(data, setAlerts, setPopup, soundOn) {
   if (!data || data.type !== 'anomaly_alert') return
+  // Ses: merge erken return etse bile cal (test tekrarinda da)
+  if (soundOn) queueMicrotask(() => playAlertBeep())
   setAlerts((prev) => {
     const tid = data.track_id
     const cam = data.camera_id
@@ -51,7 +54,6 @@ function showAlert(data, setAlerts, setPopup, soundOn) {
       next[idx] = { ...data, read: false }
       return next
     }
-    if (soundOn) queueMicrotask(() => playAlertBeep())
     return [{ ...data, read: false }, ...prev].slice(0, 40)
   })
   setPopup(data)
@@ -86,6 +88,7 @@ export default function Dashboard({ user, onLogout }) {
   const [selectedAlert, setSelectedAlert] = useState(null)
   const [previewCam, setPreviewCam] = useState('cam_01')
   const [readSet, setReadSet] = useState(() => loadReadSet())
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const lastDbIdRef = useRef(0)
@@ -106,7 +109,20 @@ export default function Dashboard({ user, onLogout }) {
     const next = !soundOn
     setSoundOn(next)
     localStorage.setItem(SOUND_KEY, next ? 'on' : 'off')
+    unlockAlertSound()
+    if (next) playAlertBeep()
   }
+
+  // Ilk tiklamada ses kilidini ac (Chrome autoplay)
+  useEffect(() => {
+    const unlock = () => unlockAlertSound()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
 
   const markRead = useCallback((item) => {
     const key = alertKey(item)
@@ -116,6 +132,38 @@ export default function Dashboard({ user, onLogout }) {
       saveReadSet(next)
       return next
     })
+  }, [])
+
+  const markReadKeys = useCallback((keys) => {
+    if (!keys?.length) return
+    setReadSet((prev) => {
+      const next = new Set(prev)
+      for (const k of keys) next.add(k)
+      saveReadSet(next)
+      return next
+    })
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      for (const k of keys) next.delete(k)
+      return next
+    })
+  }, [])
+
+  const toggleSelect = useCallback((key) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const selectAllInList = useCallback((list) => {
+    setSelectedKeys(new Set(list.map((item) => alertKey(item))))
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedKeys(new Set())
   }, [])
 
   const fetchHistory = useCallback(async () => {
@@ -223,11 +271,13 @@ export default function Dashboard({ user, onLogout }) {
   }, [fetchHistory, fetchLlmStatus, fetchCameras, connectWs])
 
   const sendTestAlert = async () => {
+    unlockAlertSound()
+    if (soundRef.current) playAlertBeep()
     try {
       const res = await apiFetch('/api/test-alert', { method: 'POST' })
       const data = await res.json()
       if (data.alert) {
-        showAlert(data.alert, setAlerts, setPopup, soundRef.current)
+        showAlert(data.alert, setAlerts, setPopup, false) // ses zaten tiklamada caldi
         setTestMsg('Test bildirimi gösterildi.')
       } else {
         setTestMsg(data.message || 'Bildirim gönderildi.')
@@ -252,9 +302,22 @@ export default function Dashboard({ user, onLogout }) {
   }, [history, filters, readSet])
 
   const unreadCount = filteredAlerts.filter((a) => !readSet.has(alertKey(a))).length
+  const selectedCount = selectedKeys.size
+  const allLiveSelected =
+    filteredAlerts.length > 0 && filteredAlerts.every((a) => selectedKeys.has(alertKey(a)))
+  const allHistorySelected =
+    filteredHistory.length > 0 && filteredHistory.every((h) => selectedKeys.has(alertKey(h)))
+  const unreadLiveKeys = filteredAlerts
+    .filter((a) => !readSet.has(alertKey(a)))
+    .map((a) => alertKey(a))
+  const unreadHistoryKeys = filteredHistory
+    .filter((h) => !readSet.has(alertKey(h)))
+    .map((h) => alertKey(h))
+  const selectedUnreadKeys = [...selectedKeys].filter((k) => !readSet.has(k))
 
   const btnGhost = 'px-3.5 py-1.5 rounded-md text-sm font-medium border border-[var(--line)] text-[var(--text)] hover:bg-[var(--bg2)] transition'
   const btnPrimary = 'px-3.5 py-1.5 rounded-md text-sm font-medium bg-[var(--accent)] text-[#04120f] hover:brightness-110 transition'
+  const btnTiny = 'px-2 py-1 text-[11px] rounded-md border border-[var(--line)] hover:bg-[var(--bg2)] disabled:opacity-40 disabled:cursor-not-allowed'
 
   const userLabel = user?.username || 'kullanıcı'
 
@@ -348,11 +411,53 @@ export default function Dashboard({ user, onLogout }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <section className="panel-surface overflow-hidden">
-            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between gap-2">
-              <h2 className="font-display text-base font-semibold">Canlı Uyarılar</h2>
-              <span className="text-xs text-[var(--muted)]">
-                {unreadCount} okunmamış · {filteredAlerts.length} toplam
-              </span>
+            <div className="px-5 py-4 border-b border-[var(--line)] space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h2 className="font-display text-base font-semibold">Canlı Uyarılar</h2>
+                <span className="text-xs text-[var(--muted)]">
+                  {unreadCount} okunmamış · {filteredAlerts.length} toplam
+                  {selectedCount > 0 ? ` · ${selectedCount} seçili` : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="inline-flex items-center gap-2 text-xs text-[var(--muted)] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="alert-check"
+                    checked={allLiveSelected}
+                    disabled={filteredAlerts.length === 0}
+                    onChange={() => {
+                      if (allLiveSelected) clearSelection()
+                      else selectAllInList(filteredAlerts)
+                    }}
+                  />
+                  Tümünü seç
+                </label>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={selectedCount === 0}
+                  onClick={clearSelection}
+                >
+                  Seçimi kaldır
+                </button>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={selectedUnreadKeys.length === 0}
+                  onClick={() => markReadKeys(selectedUnreadKeys)}
+                >
+                  Seçilenleri okundu
+                </button>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={unreadLiveKeys.length === 0}
+                  onClick={() => markReadKeys(unreadLiveKeys)}
+                >
+                  Tümünü okundu
+                </button>
+              </div>
             </div>
             <div className="p-3 max-h-[28rem] overflow-auto">
               {filteredAlerts.length === 0 ? (
@@ -364,37 +469,45 @@ export default function Dashboard({ user, onLogout }) {
                   {filteredAlerts.map((a, i) => {
                     const key = alertKey(a)
                     const isRead = readSet.has(key)
+                    const isSelected = selectedKeys.has(key)
                     return (
                       <li key={`${key}-${i}`} className={isRead ? 'alert-card--read' : ''}>
                         <div
-                          className={`rounded-lg bg-[var(--bg2)]/80 border border-[var(--line)] border-l-4 p-3.5 ${ANOMALY_ACCENT[a.anomaly_type] || 'border-l-[#e8a54b]'}`}
+                          className={`rounded-lg bg-[var(--bg2)]/80 border border-l-4 p-3.5 flex items-start gap-3 ${
+                            ANOMALY_ACCENT[a.anomaly_type] || 'border-l-[#e8a54b]'
+                          } ${isSelected ? 'border-[var(--accent)]/50 bg-[var(--accent)]/5' : 'border-[var(--line)]'}`}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <button
-                              type="button"
-                              className="text-left flex-1 min-w-0"
-                              onClick={() => setSelectedAlert(a)}
-                            >
+                          <input
+                            type="checkbox"
+                            className="alert-check mt-1 shrink-0"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(key)}
+                            aria-label="Uyarıyı seç"
+                          />
+                          <button
+                            type="button"
+                            className="text-left flex-1 min-w-0"
+                            onClick={() => setSelectedAlert(a)}
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[a.anomaly_type] || 'bg-black/5'}`}>
                                 {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
                               </span>
-                              <p className="text-sm mt-2 text-[var(--muted)] leading-relaxed">{a.report}</p>
-                              <p className="text-xs text-[var(--muted)] mt-1">{a.camera_id} · Varlık {a.track_id}</p>
-                            </button>
-                            <div className="flex flex-col items-end gap-2 shrink-0">
-                              <span className="text-xs text-[var(--muted)]">{a.camera_id}</span>
-                              {!isRead ? (
-                                <button
-                                  type="button"
-                                  onClick={() => markRead(a)}
-                                  className="px-2 py-1 text-[11px] rounded-md border border-[var(--line)] hover:bg-[var(--bg1)]"
-                                >
-                                  Okundu
-                                </button>
-                              ) : (
-                                <span className="text-[11px] text-[var(--muted)]">Okundu</span>
-                              )}
+                              {isRead && <span className="alert-read-pill">Okundu</span>}
                             </div>
+                            <p className="text-sm mt-2 text-[var(--muted)] leading-relaxed">{a.report}</p>
+                            <p className="text-xs text-[var(--muted)] mt-1">{a.camera_id} · Varlık {a.track_id}</p>
+                          </button>
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            {!isRead ? (
+                              <button
+                                type="button"
+                                onClick={() => markRead(a)}
+                                className={btnTiny}
+                              >
+                                Okundu
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       </li>
@@ -406,15 +519,60 @@ export default function Dashboard({ user, onLogout }) {
           </section>
 
           <section className="panel-surface overflow-hidden">
-            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
-              <h2 className="font-display text-base font-semibold">Geçmiş Kayıtlar</h2>
-              <span className="text-xs text-[var(--muted)]">{filteredHistory.length}</span>
+            <div className="px-5 py-4 border-b border-[var(--line)] space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h2 className="font-display text-base font-semibold">Geçmiş Kayıtlar</h2>
+                <span className="text-xs text-[var(--muted)]">
+                  {filteredHistory.length}
+                  {selectedCount > 0 ? ` · ${selectedCount} seçili` : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="inline-flex items-center gap-2 text-xs text-[var(--muted)] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="alert-check"
+                    checked={allHistorySelected}
+                    disabled={filteredHistory.length === 0}
+                    onChange={() => {
+                      if (allHistorySelected) clearSelection()
+                      else selectAllInList(filteredHistory)
+                    }}
+                  />
+                  Tümünü seç
+                </label>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={selectedCount === 0}
+                  onClick={clearSelection}
+                >
+                  Seçimi kaldır
+                </button>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={selectedUnreadKeys.length === 0}
+                  onClick={() => markReadKeys(selectedUnreadKeys)}
+                >
+                  Seçilenleri okundu
+                </button>
+                <button
+                  type="button"
+                  className={btnTiny}
+                  disabled={unreadHistoryKeys.length === 0}
+                  onClick={() => markReadKeys(unreadHistoryKeys)}
+                >
+                  Tümünü okundu
+                </button>
+              </div>
             </div>
             <div className="overflow-auto max-h-[28rem]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-[var(--bg1)]">
                   <tr className="text-[var(--muted)] text-left border-b border-[var(--line)]">
-                    <th className="px-5 py-3 font-medium">Zaman</th>
+                    <th className="pl-4 pr-1 py-3 w-10" aria-hidden="true" />
+                    <th className="px-3 py-3 font-medium">Zaman</th>
                     <th className="px-3 py-3 font-medium">Tip</th>
                     <th className="px-3 py-3 font-medium">Kamera</th>
                     <th className="px-5 py-3 font-medium text-right">Güven</th>
@@ -423,32 +581,69 @@ export default function Dashboard({ user, onLogout }) {
                 <tbody>
                   {filteredHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-5 py-8 text-center text-[var(--muted)]">
+                      <td colSpan={5} className="px-5 py-8 text-center text-[var(--muted)]">
                         Kayıt yok.
                       </td>
                     </tr>
                   ) : (
                     filteredHistory.map((h) => {
-                      const isRead = readSet.has(alertKey(h))
+                      const key = alertKey(h)
+                      const isRead = readSet.has(key)
+                      const isSelected = selectedKeys.has(key)
                       return (
                         <tr
                           key={h.id}
-                          className={`border-b border-[var(--line)] hover:bg-black/[0.03] cursor-pointer ${isRead ? 'alert-card--read' : ''}`}
-                          onClick={() => setSelectedAlert({
-                            ...h,
-                            report: h.ai_generated_report,
-                          })}
+                          className={`border-b border-[var(--line)] hover:bg-black/[0.03] ${isRead ? 'alert-card--read' : ''} ${isSelected ? 'bg-[var(--accent)]/5' : ''}`}
                         >
-                          <td className="px-5 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
+                          <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="alert-check"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(key)}
+                              aria-label="Kaydı seç"
+                            />
+                          </td>
+                          <td
+                            className="px-3 py-3 text-xs text-[var(--muted)] whitespace-nowrap cursor-pointer"
+                            onClick={() => setSelectedAlert({
+                              ...h,
+                              report: h.ai_generated_report,
+                            })}
+                          >
                             {new Date(h.timestamp).toLocaleString('tr-TR')}
                           </td>
-                          <td className="px-3 py-3">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[h.anomaly_type] || ''}`}>
-                              {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
-                            </span>
+                          <td
+                            className="px-3 py-3 cursor-pointer"
+                            onClick={() => setSelectedAlert({
+                              ...h,
+                              report: h.ai_generated_report,
+                            })}
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[h.anomaly_type] || ''}`}>
+                                {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
+                              </span>
+                              {isRead && <span className="alert-read-pill">Okundu</span>}
+                            </div>
                           </td>
-                          <td className="px-3 py-3 text-[var(--muted)]">{h.camera_id}</td>
-                          <td className="px-5 py-3 text-right tabular-nums">
+                          <td
+                            className="px-3 py-3 text-[var(--muted)] cursor-pointer"
+                            onClick={() => setSelectedAlert({
+                              ...h,
+                              report: h.ai_generated_report,
+                            })}
+                          >
+                            {h.camera_id}
+                            <span className="block text-[10px] opacity-70">ID {h.track_id}</span>
+                          </td>
+                          <td
+                            className="px-5 py-3 text-right tabular-nums cursor-pointer"
+                            onClick={() => setSelectedAlert({
+                              ...h,
+                              report: h.ai_generated_report,
+                            })}
+                          >
                             {h.confidence_score?.toFixed(2)}
                           </td>
                         </tr>
@@ -494,10 +689,11 @@ export default function Dashboard({ user, onLogout }) {
       <SnapshotModal
         alert={selectedAlert}
         history={history}
+        liveAlerts={alerts}
+        readSet={readSet}
         onClose={() => setSelectedAlert(null)}
-        onMarkRead={(a) => {
-          markRead(a)
-        }}
+        onMarkRead={markRead}
+        onSelectAlert={setSelectedAlert}
       />
     </div>
   )
