@@ -1,12 +1,12 @@
 {
   "cam_01": [
-    [[480, 300], [620, 300], [620, 460], [480, 460]]
+    [[220, 140], [420, 140], [420, 360], [220, 360]]
   ],
   "cam_zone_01": [
-    [[220, 100], [630, 80], [630, 470], [180, 470]]
+    [[340, 140], [620, 120], [630, 360], [360, 380]]
   ],
   "_aciklama": {
-    "cam_01": "Canli webcam — sag alt kucuk alan",
-    "cam_zone_01": "zone_01.mp4 bina girisi (640x480 resize sonrasi)"
+    "cam_01": "Genel test / tez videolari — kare ortasi (sol-orta). Yasakli alan ihlali icin buraya girince alarm.",
+    "cam_zone_01": "zone_01.mp4 — bina kapisi / landing (daraltilmis)"
   }
 }

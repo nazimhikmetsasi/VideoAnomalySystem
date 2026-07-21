@@ -17,13 +17,13 @@ class MotionClassifier:
     """Pose + kinematik veriden anlik hareket durumu cikarir."""
 
     def __init__(self):
-        self.walk_speed = float(os.getenv('WALK_SPEED_MIN', 12))
-        self.run_speed = float(os.getenv('RUN_HORIZONTAL_SPEED', 45))
-        self.fall_vy = float(os.getenv('FALL_VERTICAL_VELOCITY', 55))
-        self.fall_spine = float(os.getenv('FALL_SPINE_ANGLE', 45))
+        self.walk_speed = float(os.getenv('WALK_SPEED_MIN', 15))
+        self.run_speed = float(os.getenv('RUN_HORIZONTAL_SPEED', 65))
+        self.fall_vy = float(os.getenv('FALL_VERTICAL_VELOCITY', 70))
+        self.fall_spine = float(os.getenv('FALL_SPINE_ANGLE', 40))
         self.sit_knee_angle = float(os.getenv('SIT_KNEE_ANGLE_MAX', 95))
         self.crouch_spine = float(os.getenv('CROUCH_SPINE_ANGLE_MAX', 55))
-        self.confirm_frames = int(os.getenv('MOTION_CONFIRM_FRAMES', 3))
+        self.confirm_frames = int(os.getenv('MOTION_CONFIRM_FRAMES', 5))
         self.frame_w = float(os.getenv('FRAME_WIDTH', 640))
         self.frame_h = float(os.getenv('FRAME_HEIGHT', 480))
         self._history: dict[int, deque] = {}
@@ -54,7 +54,8 @@ class MotionClassifier:
         if samples < 2:
             instant = MOTION_STANDING
             confidence = 0.4
-        elif norm_vy >= self.fall_vy and spine <= self.fall_spine:
+        elif norm_vy >= self.fall_vy and spine <= self.fall_spine and norm_h < self.run_speed * 0.6:
+            # Yatay kosu varken dusme deme (kosu salinimini dusme sanmasin)
             instant = MOTION_FALLING
             confidence = min(1.0, norm_vy / self.fall_vy)
         elif knee <= self.sit_knee_angle and hip_knee_ratio < 0.35:

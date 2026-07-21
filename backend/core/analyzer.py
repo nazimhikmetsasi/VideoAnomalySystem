@@ -23,17 +23,22 @@ class AnomalyAnalyzer:
     ANOMALY_PRESENCE = 'PERSON_ENTERED'
 
     def __init__(self):
-        self.fall_vy = float(os.getenv('FALL_VERTICAL_VELOCITY', 120))
-        self.fall_spine = float(os.getenv('FALL_SPINE_ANGLE', 30))
-        self.run_speed = float(os.getenv('RUN_HORIZONTAL_SPEED', 90))
-        self.cooldown = float(os.getenv('ANOMALY_COOLDOWN_SEC', 12))
-        self.min_samples = int(os.getenv('MIN_KINEMATICS_SAMPLES', 4))
+        self.fall_vy = float(os.getenv('FALL_VERTICAL_VELOCITY', 70))
+        self.fall_spine = float(os.getenv('FALL_SPINE_ANGLE', 40))
+        self.run_speed = float(os.getenv('RUN_HORIZONTAL_SPEED', 65))
+        self.cooldown = float(os.getenv('ANOMALY_COOLDOWN_SEC', 18))
+        self.min_samples = int(os.getenv('MIN_KINEMATICS_SAMPLES', 8))
         self.presence_enabled = os.getenv('ENABLE_PRESENCE_ALERT', 'false').lower() == 'true'
         self.presence_cooldown = float(os.getenv('PRESENCE_COOLDOWN_SEC', 30))
         self.zone_bbox_fallback = os.getenv('ZONE_BBOX_FALLBACK', 'false').lower() == 'true'
+        # Tek kare hiz sicramasini engelle: RUN/FALL icin onayli hareket iste
+        self.require_motion_confirm = os.getenv('REQUIRE_MOTION_CONFIRM', 'true').lower() == 'true'
+        self.zone_dwell_frames = int(os.getenv('ZONE_DWELL_FRAMES', 10))
+        self.min_run_conf = float(os.getenv('MIN_RUN_CONFIDENCE', 0.55))
         self.frame_w = float(os.getenv('FRAME_WIDTH', 640))
         self.frame_h = float(os.getenv('FRAME_HEIGHT', 480))
         self._known_tracks: set[int] = set()
+        self._zone_dwell: dict[str, int] = {}
         self.motion_classifier = MotionClassifier()
 
         self._last_alert: dict[str, float] = {}
@@ -61,6 +66,15 @@ class AnomalyAnalyzer:
         self._last_alert[key] = now
         return True
 
+    def _zone_dwell_ok(self, camera_id: str, track_id: int, inside: bool) -> bool:
+        """Bolgede art arda N kare kalinca ihlal say."""
+        key = f'{camera_id}_{track_id}'
+        if not inside:
+            self._zone_dwell[key] = 0
+            return False
+        self._zone_dwell[key] = self._zone_dwell.get(key, 0) + 1
+        return self._zone_dwell[key] >= self.zone_dwell_frames
+
     def analyze(
         self,
         track_id: int,
@@ -86,18 +100,52 @@ class AnomalyAnalyzer:
         norm_vy = vy * (480.0 / max(self.frame_h, 1))
 
         confirmed = motion_info.get('motion_confirmed')
+        motion_conf = float(motion_info.get('motion_confidence') or 0)
         anomaly_type = None
         confidence = 0.0
 
-        if confirmed == MOTION_RUNNING or norm_h_speed >= self.run_speed:
+        run_hit = False
+        if self.require_motion_confirm:
+            run_hit = (
+                confirmed == MOTION_RUNNING
+                and norm_h_speed >= self.run_speed * 0.75
+                and motion_conf >= self.min_run_conf
+            )
+        else:
+            run_hit = confirmed == MOTION_RUNNING or norm_h_speed >= self.run_speed
+
+        # Dusme: dikey baskin + omurga egik + yatay kosu YOK
+        fall_like = (
+            norm_vy >= self.fall_vy
+            and spine <= self.fall_spine
+            and norm_h_speed < self.run_speed * 0.6
+        )
+        if self.require_motion_confirm:
+            fall_hit = confirmed == MOTION_FALLING and fall_like
+        else:
+            fall_hit = confirmed == MOTION_FALLING or fall_like
+
+        # Yuksek yatay hiz varken dusmeyi ezer (kosu salinimi / kamera sarsintisi)
+        if norm_h_speed >= self.run_speed * 0.75:
+            fall_hit = False
+
+        inside_zone = self._check_zone_violation(hip_center, camera_id)
+        zone_hit = self._zone_dwell_ok(camera_id, track_id, inside_zone)
+
+        # Oncelik: RUN > FALL > ZONE
+        if run_hit:
             anomaly_type = self.ANOMALY_RUN
-            confidence = min(1.0, norm_h_speed / self.run_speed * 0.85)
-
-        elif confirmed == MOTION_FALLING or (norm_vy >= self.fall_vy and spine <= self.fall_spine):
+            confidence = min(1.0, max(motion_conf, norm_h_speed / self.run_speed * 0.85))
+        elif fall_hit:
             anomaly_type = self.ANOMALY_FALL
-            confidence = min(1.0, norm_vy / self.fall_vy * 0.5 + (90 - spine) / 90 * 0.5)
-
-        elif self._check_zone_violation(hip_center, camera_id):
+            confidence = min(
+                1.0,
+                max(
+                    motion_conf,
+                    norm_vy / max(self.fall_vy, 1) * 0.5 + (90 - spine) / 90 * 0.5,
+                ),
+            )
+        elif zone_hit:
             anomaly_type = self.ANOMALY_ZONE
             confidence = 0.85
 
@@ -127,6 +175,9 @@ class AnomalyAnalyzer:
 
     def reset_track(self, track_id: int):
         self.motion_classifier.reset_track(track_id)
+        stale = [k for k in self._zone_dwell if k.endswith(f'_{track_id}')]
+        for k in stale:
+            del self._zone_dwell[k]
 
     def analyze_presence(self, track_id: int, camera_id: str, bbox: list) -> dict | None:
         """Yeni kisi kareye girdiginde tetiklenir (opsiyonel)."""
@@ -159,7 +210,8 @@ class AnomalyAnalyzer:
             return None
         x1, y1, x2, y2 = bbox
         center = {'x': (x1 + x2) / 2, 'y': (y1 + y2) / 2, 'z': 0}
-        if not self._check_zone_violation(center, camera_id):
+        inside = self._check_zone_violation(center, camera_id)
+        if not self._zone_dwell_ok(camera_id, track_id, inside):
             return None
         key = f"{camera_id}_{track_id}_{self.ANOMALY_ZONE}"
         if not self._cooldown_ok(key):
@@ -178,6 +230,10 @@ class AnomalyAnalyzer:
         """Ekrandan cikan track ID'lerini temizler — tekrar girince bildirim gelir."""
         self._known_tracks &= active_ids
         self.motion_classifier.clear_stale(active_ids)
+        self._zone_dwell = {
+            k: v for k, v in self._zone_dwell.items()
+            if any(k.endswith(f'_{tid}') for tid in active_ids)
+        }
 
     def _check_zone_violation(self, hip_center: dict, camera_id: str) -> bool:
         forbidden = self._zones.get(camera_id, [])
