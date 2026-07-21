@@ -56,6 +56,7 @@ class VideoKafkaProducer:
         self.frame_width = int(os.getenv('FRAME_WIDTH', 640))
         self.frame_height = int(os.getenv('FRAME_HEIGHT', 480))
         self.target_fps = float(os.getenv('TARGET_FPS', 30))
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
         if kafka_enabled is None:
             kafka_enabled = os.getenv('KAFKA_ENABLED', 'true').lower() == 'true'
@@ -63,7 +64,7 @@ class VideoKafkaProducer:
 
         logger.info("AI modulleri baslatiliyor...")
         self.detector = HumanDetector()
-        self.tracker = PersonTracker()
+        self.tracker = PersonTracker(video_source=self._source_desc)
         self.pose_estimator = PoseEstimator()
         self.kinematics = KinematicsEngine()
         self.analyzer = AnomalyAnalyzer()
@@ -124,7 +125,12 @@ class VideoKafkaProducer:
 
             # YOLO + DeepSORT
             detections = self.detector.detect(frame)
-            tracks = self.tracker.update(detections, frame)
+            tracks = self.tracker.update(
+                detections,
+                frame,
+                frame_idx=frame_count,
+                total_frames=self.total_frames,
+            )
             frame_poses = self.pose_estimator.extract_all(frame)
 
             display = frame.copy()
@@ -143,8 +149,8 @@ class VideoKafkaProducer:
                 state = self.track_state.update(tid, bbox)
                 tr['is_stable'] = state['is_stable']
                 if state['id_jump']:
+                    # Sadece kinematik sifirla — hareket etiketi/cooldown silinmesin (Belirsiz olmasin)
                     self.kinematics.reset_track(tid)
-                    self.analyzer.reset_track(tid)
 
                 # Yeni kisi girdi mi?
                 presence = self.analyzer.analyze_presence(tid, self.camera_id, bbox)
@@ -190,14 +196,29 @@ class VideoKafkaProducer:
                     motion_map[tid] = motion_preview
                     display = draw_pose(display, pose_data['raw_landmarks'], bbox)
                 else:
-                    anomaly = self.analyzer.analyze_zone_bbox(tid, bbox, self.camera_id)
+                    # Pose eslesmedi — bbox merkezi ile hareket tahmini (Belirsiz kalmasin)
+                    cx = (bbox[0] + bbox[2]) / 2.0
+                    cy = (bbox[1] + bbox[3]) / 2.0
+                    hip = {'x': cx, 'y': cy, 'z': 0.0}
+                    metrics = self.kinematics.update(tid, hip, 85.0, ts)
+                    motion_preview = self.analyzer.motion_classifier.classify(tid, metrics, None)
+                    metrics.update(motion_preview)
+                    motion_map[tid] = motion_preview
+                    entry['metrics'] = metrics
+                    entry['hip_center'] = hip
+                    if state['is_stable']:
+                        anomaly = self.analyzer.analyze(
+                            tid, metrics, hip, self.camera_id, None, motion_preview,
+                        )
 
                 if anomaly:
                     self._latest_anomaly = anomaly
                     display = draw_anomaly_alert(display, anomaly)
                     landmarks = pose_data['landmarks'] if pose_data else []
-                    self._publish_anomaly(anomaly, landmarks)
+                    # Panel icin dogrudan API; Kafka anomaly cift bildirim uretmesin
                     notify_api(anomaly, landmarks)
+                    if os.getenv('ANOMALY_KAFKA_PUBLISH', 'false').lower() == 'true':
+                        self._publish_anomaly(anomaly, landmarks)
 
                 track_payload.append(entry)
 

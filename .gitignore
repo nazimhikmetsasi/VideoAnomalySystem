@@ -21,3 +21,6 @@ yolov8n.pt
 yolov8n-pose.pt
 config/firebase-service-account.json
 **/firebase-service-account*.json
+
+datasets/pilot/detection/_runtime_dataset.yaml
+datasets/pilot/detection/images/*.jpg

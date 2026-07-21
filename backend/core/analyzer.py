@@ -20,6 +20,7 @@ class AnomalyAnalyzer:
     ANOMALY_FALL = 'FALL'
     ANOMALY_RUN = 'RUN'
     ANOMALY_ZONE = 'ZONE_VIOLATION'
+    ANOMALY_RUN_ZONE = 'RUN_ZONE'
     ANOMALY_PRESENCE = 'PERSON_ENTERED'
 
     def __init__(self):
@@ -132,8 +133,12 @@ class AnomalyAnalyzer:
         inside_zone = self._check_zone_violation(hip_center, camera_id)
         zone_hit = self._zone_dwell_ok(camera_id, track_id, inside_zone)
 
-        # Oncelik: RUN > FALL > ZONE
-        if run_hit:
+        # Oncelik: (RUN + bolgede) birlesik > RUN > FALL > ZONE
+        # Kosuyorsa dwell bekleme — icerideyse hemen RUN_ZONE
+        if run_hit and inside_zone:
+            anomaly_type = self.ANOMALY_RUN_ZONE
+            confidence = min(1.0, max(motion_conf, norm_h_speed / self.run_speed * 0.85, 0.9))
+        elif run_hit:
             anomaly_type = self.ANOMALY_RUN
             confidence = min(1.0, max(motion_conf, norm_h_speed / self.run_speed * 0.85))
         elif fall_hit:
@@ -152,7 +157,8 @@ class AnomalyAnalyzer:
         if not anomaly_type:
             return None
 
-        key = f"{camera_id}_{track_id}_{anomaly_type}"
+        # Ayni track icin tek bildirim penceresi (tip fark etmez)
+        key = f"{camera_id}_{track_id}"
         if not self._cooldown_ok(key):
             return None
 
@@ -163,13 +169,14 @@ class AnomalyAnalyzer:
             'confidence_score': round(confidence, 3),
             'motion': motion_info.get('motion'),
             'motion_confirmed': confirmed,
+            'in_zone': bool(zone_hit or inside_zone),
             'metrics': metrics,
             'hip_center': hip_center,
             'timestamp': time.time()
         }
         logger.info(
             f"ANOMALI | {anomaly_type} | cam={camera_id} | track={track_id} | "
-            f"motion={motion_info.get('motion')} | conf={confidence:.2f}"
+            f"motion={motion_info.get('motion')} | zone={event['in_zone']} | conf={confidence:.2f}"
         )
         return event
 
@@ -213,7 +220,7 @@ class AnomalyAnalyzer:
         inside = self._check_zone_violation(center, camera_id)
         if not self._zone_dwell_ok(camera_id, track_id, inside):
             return None
-        key = f"{camera_id}_{track_id}_{self.ANOMALY_ZONE}"
+        key = f"{camera_id}_{track_id}"
         if not self._cooldown_ok(key):
             return None
         return {
@@ -221,6 +228,7 @@ class AnomalyAnalyzer:
             'track_id': track_id,
             'anomaly_type': self.ANOMALY_ZONE,
             'confidence_score': 0.85,
+            'in_zone': True,
             'metrics': {},
             'hip_center': center,
             'timestamp': time.time()

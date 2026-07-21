@@ -17,6 +17,7 @@ ANOMALY_TR = {
     'FALL': 'dusme',
     'RUN': 'kosma',
     'ZONE_VIOLATION': 'yasakli alan ihlali',
+    'RUN_ZONE': 'kosarak alan ihlali',
     'PERSON_ENTERED': 'alana giris',
 }
 
@@ -47,10 +48,12 @@ def format_push_message(payload: dict) -> tuple[str, str]:
 
     title = f'MCBU Alarm: {label.upper()}'
 
-    if atype == 'ZONE_VIOLATION' and motion in ('RUNNING', 'RUN'):
+    if atype == 'RUN_ZONE' or (atype == 'ZONE_VIOLATION' and motion in ('RUNNING', 'RUN')):
         body = f'Varlik ID:{track_id} kosarak yasakli alana giris yapti ({camera_id}).'
     elif atype == 'ZONE_VIOLATION':
         body = f'Varlik ID:{track_id} yasakli alana giris yapti ({camera_id}).'
+    elif atype == 'RUN' and payload.get('in_zone'):
+        body = f'Varlik ID:{track_id} kosarak yasakli alana giris yapti ({camera_id}).'
     elif atype == 'RUN':
         body = f'Varlik ID:{track_id} kosma hareketi sergiledi ({camera_id}).'
     elif atype == 'FALL':

@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 import httpx
 
 logger = logging.getLogger('api')
@@ -8,7 +9,8 @@ ANOMALY_LABELS = {
     'FALL': 'yere dusme',
     'PERSON_ENTERED': 'kisi kareye girdi',
     'RUN': 'hizli kosma',
-    'ZONE_VIOLATION': 'yasakli alan ihlali'
+    'ZONE_VIOLATION': 'yasakli alan ihlali',
+    'RUN_ZONE': 'kosarak yasakli alan ihlali',
 }
 
 
@@ -17,12 +19,27 @@ class LLMReporter:
 
     def __init__(self):
         self._refresh_config()
+        # Kota/429 sonrasi bir sure sadece sablon kullan (panel gecikmesin)
+        self._llm_cooldown_until = 0.0
 
     def _refresh_config(self):
         self.provider = os.getenv('LLM_PROVIDER', 'gemini').lower()
         self.gemini_key = (os.getenv('GEMINI_API_KEY') or '').strip()
         self.openai_key = (os.getenv('OPENAI_API_KEY') or '').strip()
         self.model = os.getenv('LLM_MODEL', 'gemini-2.0-flash')
+        self.http_timeout = float(os.getenv('LLM_HTTP_TIMEOUT_SEC', 4))
+        self.quota_cooldown = float(os.getenv('LLM_QUOTA_COOLDOWN_SEC', 600))
+
+    def _llm_available(self) -> bool:
+        return time.time() >= self._llm_cooldown_until
+
+    def _trip_quota_cooldown(self, err: Exception):
+        text = str(err)
+        if '429' in text or 'quota' in text.lower() or 'rate' in text.lower():
+            self._llm_cooldown_until = time.time() + self.quota_cooldown
+            logger.warning(
+                f"LLM kota/limit — {self.quota_cooldown:.0f}sn sablon modu"
+            )
 
     def status(self) -> dict:
         self._refresh_config()
@@ -32,15 +49,20 @@ class LLMReporter:
             configured = bool(self.openai_key)
         else:
             configured = False
+        cooling = not self._llm_available()
         return {
             'provider': self.provider,
             'model': self.model,
             'configured': configured,
-            'mode': 'llm' if configured else 'template',
+            'mode': 'template' if cooling or not configured else 'llm',
+            'quota_cooldown': cooling,
         }
 
     def generate_report(self, event: dict) -> str:
         self._refresh_config()
+
+        if not self._llm_available():
+            return self._template_report(event)
 
         if self.provider == 'gemini' and self.gemini_key:
             try:
@@ -48,6 +70,7 @@ class LLMReporter:
                 logger.info(f"Gemini rapor uretildi | {event.get('anomaly_type')}")
                 return report
             except Exception as e:
+                self._trip_quota_cooldown(e)
                 logger.warning(f"Gemini hatasi, sablon kullaniliyor: {e}")
 
         if self.provider == 'openai' and self.openai_key:
@@ -56,6 +79,7 @@ class LLMReporter:
                 logger.info(f"OpenAI rapor uretildi | {event.get('anomaly_type')}")
                 return report
             except Exception as e:
+                self._trip_quota_cooldown(e)
                 logger.warning(f"OpenAI hatasi, sablon kullaniliyor: {e}")
 
         if self.provider in ('gemini', 'openai') and not (self.gemini_key or self.openai_key):
@@ -144,7 +168,7 @@ class LLMReporter:
             'contents': [{'parts': [{'text': self._build_prompt(event)}]}],
             'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 256},
         }
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             resp = client.post(url, params={'key': self.gemini_key}, json=payload)
             if resp.status_code != 200:
                 detail = resp.text[:300]
@@ -162,15 +186,33 @@ class LLMReporter:
             ],
             'max_tokens': 200,
         }
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             return resp.json()['choices'][0]['message']['content'].strip()
 
     def _template_report(self, event: dict) -> str:
-        label = ANOMALY_LABELS.get(event['anomaly_type'], event['anomaly_type'])
-        score = event.get('confidence_score', 0)
+        atype = event.get('anomaly_type')
+        tid = event.get('track_id')
+        cam = event.get('camera_id')
+        score = float(event.get('confidence_score', 0) or 0)
+        motion = event.get('motion_confirmed') or event.get('motion')
+        in_zone = event.get('in_zone')
+
+        if atype == 'RUN_ZONE' or (atype == 'ZONE_VIOLATION' and motion in ('RUNNING', 'RUN')):
+            action = 'kosarak yasakli alana giris yapti'
+        elif atype == 'RUN' and in_zone:
+            action = 'kosarak yasakli alana giris yapti'
+        elif atype == 'RUN':
+            action = 'hizli kosma hareketi sergiledi'
+        elif atype == 'ZONE_VIOLATION':
+            action = 'yasakli alana giris yapti'
+        elif atype == 'FALL':
+            action = 'dusme hareketi sergiledi'
+        else:
+            label = ANOMALY_LABELS.get(atype, atype)
+            action = f'{label} tespit edildi'
+
         return (
-            f"{event['camera_id']} numarali kamerada, {event['track_id']} ID'li kiside "
-            f"{label} tespit edildi. Guven skoru: {float(score):.2f}."
+            f"Varlik ID:{tid} {action} ({cam}). Guven skoru: {score:.2f}."
         )

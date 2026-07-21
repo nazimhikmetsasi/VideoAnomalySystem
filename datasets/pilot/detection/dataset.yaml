@@ -4,7 +4,7 @@
 # 3) Bu dosyadaki path ve class sayisini guncelleyin
 # 4) Calistir: .\run_pilot_eval.bat --detection-only
 
-path: datasets/pilot/detection
+path: .
 train: images
 val: images
 

@@ -88,10 +88,16 @@ class MotionClassifier:
         buf = self._history[track_id]
         buf.append(motion)
         if len(buf) < self.confirm_frames:
-            return MOTION_UNKNOWN
-        if all(m == motion for m in buf):
-            return motion
-        return MOTION_UNKNOWN
+            # Erken etikette anlik hareketi goster (Belirsiz kalmasin)
+            return motion if len(buf) >= 2 else MOTION_UNKNOWN
+        # Cogunluk oyu — tek kare titreme tum onayi bozmasin
+        counts: dict[str, int] = {}
+        for m in buf:
+            counts[m] = counts.get(m, 0) + 1
+        best, n = max(counts.items(), key=lambda kv: kv[1])
+        if n >= max(2, (len(buf) + 1) // 2):
+            return best
+        return motion
 
     def reset_track(self, track_id: int):
         self._history.pop(track_id, None)

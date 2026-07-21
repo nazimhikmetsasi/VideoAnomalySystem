@@ -18,7 +18,7 @@ MOTION_LABELS_TR = {
     'FALLING': 'Dusuyor',
     'SITTING': 'Oturuyor',
     'CROUCHING': 'Egiliyor',
-    'UNKNOWN': 'Belirsiz',
+    'UNKNOWN': 'Takipte',
 }
 
 

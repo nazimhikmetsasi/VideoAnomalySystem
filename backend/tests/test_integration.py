@@ -113,7 +113,6 @@ def test_analyzer_run_beats_fall_when_horizontal_fast():
         'spine_angle': 10,
         'sample_count': 10,
     }
-    # Anlik dusme etiketi gelse bile yatay baskinsa FALL olmamali
     motion_info = {
         'motion': 'FALLING',
         'motion_confirmed': 'FALLING',
@@ -142,6 +141,45 @@ def test_analyzer_run_beats_fall_when_horizontal_fast():
     )
     assert event2 is not None
     assert event2['anomaly_type'] == 'RUN'
+
+
+def test_analyzer_run_and_zone_combined():
+    """Kosu + alan ayni anda tek RUN_ZONE bildirimi olmali."""
+    analyzer = AnomalyAnalyzer()
+    analyzer.require_motion_confirm = True
+    analyzer.min_samples = 4
+    analyzer.zone_dwell_frames = 1
+    analyzer._zones['cam_z'] = [[[0, 0], [640, 0], [640, 480], [0, 480]]]
+    metrics = {
+        'vertical_velocity': 10,
+        'horizontal_velocity': 120,
+        'spine_angle': 80,
+        'sample_count': 10,
+    }
+    motion_info = {
+        'motion': 'RUNNING',
+        'motion_confirmed': 'RUNNING',
+        'motion_confidence': 0.9,
+    }
+    event = analyzer.analyze(
+        track_id=13,
+        metrics=metrics,
+        hip_center={'x': 100, 'y': 100, 'z': 0},
+        camera_id='cam_z',
+        motion_info=motion_info,
+    )
+    assert event is not None
+    assert event['anomaly_type'] == 'RUN_ZONE'
+    assert event.get('in_zone') is True
+    # Ayni track tekrar bildirim uretmemeli (cooldown)
+    event2 = analyzer.analyze(
+        track_id=13,
+        metrics=metrics,
+        hip_center={'x': 100, 'y': 100, 'z': 0},
+        camera_id='cam_z',
+        motion_info=motion_info,
+    )
+    assert event2 is None
 
 
 def test_zone_dwell_requires_frames():
@@ -231,6 +269,16 @@ def test_track_state_jump_detection():
     assert s1['id_jump'] is False
     s2 = mgr.update(1, [400, 100, 500, 300])
     assert s2['id_jump'] is True
+
+
+def test_tracker_reuses_id_after_exit():
+    """Yeni DeepSORT track'leri ayri display ID almali (ardisik kisiler karismasin)."""
+    from core.tracker import PersonTracker
+    tr = PersonTracker()
+    assert tr._display_id(10) == 1
+    assert tr._display_id(20) == 2
+    assert tr._display_id(10) == 1
+    assert tr._display_id(30) == 3
 
 
 def test_sliding_window_filter():

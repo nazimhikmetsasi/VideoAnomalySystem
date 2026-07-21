@@ -25,27 +25,43 @@ def run_finetune(
     root = Path(__file__).resolve().parents[2]
     yaml_path = Path(dataset_yaml) if dataset_yaml else root / 'datasets' / 'pilot' / 'detection' / 'dataset.yaml'
     images_dir = yaml_path.parent / 'images'
+    det_root = yaml_path.parent.resolve()
 
     if not yaml_path.exists():
         raise FileNotFoundError(f'Dataset yaml bulunamadi: {yaml_path}')
-    if not images_dir.exists() or not any(images_dir.glob('*')):
+    if not images_dir.exists() or not any(images_dir.glob('*.jpg')):
         raise FileNotFoundError(
             f'Goruntu yok: {images_dir}\n'
-            f'Once datasets/pilot/detection/images/ ve labels/ doldurun.'
+            f'Once datasets/pilot/detection/images/ ve labels/ doldurun '
+            f'(python training/prepare_finetune_data.py).'
         )
 
+    # Ultralytics cwd'ye gore cozer; mutlak path yaz (OneDrive/Turkce karakter guvenli)
+    runtime_yaml = det_root / '_runtime_dataset.yaml'
+    runtime_yaml.write_text(
+        f'path: {det_root.as_posix()}\n'
+        f'train: images\n'
+        f'val: images\n'
+        f'names:\n'
+        f'  0: person\n',
+        encoding='utf-8',
+    )
+
     model_path = base_model or os.getenv('YOLO_MODEL_PATH', 'yolov8n.pt')
+    # Fine-tune sirasinda onceki best.pt'ye kilitlenmemek icin base model
+    if 'pilot_person' in str(model_path).replace('\\', '/'):
+        model_path = 'yolov8n.pt'
     epochs = epochs or int(os.getenv('FINETUNE_EPOCHS', 30))
     imgsz = imgsz or int(os.getenv('FINETUNE_IMGSZ', 640))
     batch = batch or int(os.getenv('FINETUNE_BATCH', 8))
     project = project or os.getenv('FINETUNE_PROJECT', str(root / 'runs' / 'detect'))
     name = name or os.getenv('FINETUNE_NAME', 'pilot_person')
 
-    device = 'cuda' if os.getenv('USE_GPU', 'true').lower() == 'true' else 'cpu'
+    device = '0' if os.getenv('USE_GPU', 'true').lower() == 'true' else 'cpu'
     model = YOLO(model_path)
 
     results = model.train(
-        data=str(yaml_path),
+        data=str(runtime_yaml),
         epochs=epochs,
         imgsz=imgsz,
         batch=batch,
@@ -55,6 +71,7 @@ def run_finetune(
         patience=10,
         exist_ok=True,
         verbose=True,
+        workers=2,
     )
 
     best_weights = Path(project) / name / 'weights' / 'best.pt'

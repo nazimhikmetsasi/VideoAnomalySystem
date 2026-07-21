@@ -1,12 +1,12 @@
 {
   "cam_01": [
-    [[220, 140], [420, 140], [420, 360], [220, 360]]
+    [[60, 34], [900, 34], [900, 506], [60, 506]]
   ],
   "cam_zone_01": [
-    [[340, 140], [620, 120], [630, 360], [360, 380]]
+    [[510, 158], [930, 135], [945, 405], [540, 428]]
   ],
   "_aciklama": {
-    "cam_01": "Genel test / tez videolari — kare ortasi (sol-orta). Yasakli alan ihlali icin buraya girince alarm.",
-    "cam_zone_01": "zone_01.mp4 — bina kapisi / landing (daraltilmis)"
+    "cam_01": "960x540 kare — neredeyse tam ekran (kenarda ince serbest serit).",
+    "cam_zone_01": "zone_01.mp4 — bina kapisi (960x540 olcekli)"
   }
 }

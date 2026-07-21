@@ -32,13 +32,14 @@ llm_reporter = LLMReporter()
 
 
 async def _push_alert(event: dict) -> dict:
-    """DB kaydi + WebSocket yayini."""
-    report = llm_reporter.generate_report(event)
+    """DB kaydi + WebSocket yayini (LLM/FCM event loop'u bloklamasin)."""
+    # Gemini senkron HTTP — thread'de calistir ki panel donmasin
+    report = await asyncio.to_thread(llm_reporter.generate_report, event)
     event['ai_generated_report'] = report
 
     try:
-        pg_id = postgres_repo.save_anomaly(event, report)
-        mongo_repo.save_raw_metrics(event, pg_id)
+        pg_id = await asyncio.to_thread(postgres_repo.save_anomaly, event, report)
+        await asyncio.to_thread(mongo_repo.save_raw_metrics, event, pg_id)
     except Exception as e:
         logger.error(f"Veritabani kayit hatasi: {e}")
         pg_id = None
@@ -50,6 +51,8 @@ async def _push_alert(event: dict) -> dict:
         'track_id': event['track_id'],
         'anomaly_type': event['anomaly_type'],
         'confidence_score': event['confidence_score'],
+        'motion': event.get('motion') or event.get('motion_confirmed'),
+        'in_zone': event.get('in_zone'),
         'report': report,
         'timestamp': event.get('timestamp')
     }
@@ -60,8 +63,8 @@ async def _push_alert(event: dict) -> dict:
     else:
         logger.warning("WebSocket loop hazir degil")
 
-    logger.info(f"Bildirim yayinlandi | {event['anomaly_type']}")
-    fcm_result = send_push_alert(payload)
+    logger.info(f"Bildirim yayinlandi | {event['anomaly_type']} | track={event.get('track_id')}")
+    fcm_result = await asyncio.to_thread(send_push_alert, payload)
     payload['fcm'] = fcm_result
     return payload
 
@@ -79,10 +82,12 @@ def _kafka_consumer_loop():
     bootstrap = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '127.0.0.1:9092')
     topics = [
         os.getenv('KAFKA_VERIFIED_TOPIC', 'verified-anomalies'),
-        os.getenv('KAFKA_ANOMALY_TOPIC', 'anomaly-events'),
     ]
+    # Ham anomaly-events sadece Spark dogrulama zinciri kullaniliyorsa dinlenir
+    if os.getenv('ANOMALY_KAFKA_PUBLISH', 'false').lower() == 'true':
+        topics.append(os.getenv('KAFKA_ANOMALY_TOPIC', 'anomaly-events'))
     if int(os.getenv('SPARK_MIN_EVENTS', '1')) > 1:
-        topics = [topics[0]]
+        topics = [os.getenv('KAFKA_VERIFIED_TOPIC', 'verified-anomalies')]
 
     while not _stop_event.is_set():
         try:
@@ -97,12 +102,15 @@ def _kafka_consumer_loop():
             )
             logger.info(f"Kafka consumer basladi | topics={topics}")
 
-            for msg in consumer:
-                if _stop_event.is_set():
-                    break
-                _handle_verified_anomaly(msg.value)
+            # Idle timeout for dongusunu bitirmesin — poll ile bekle
+            while not _stop_event.is_set():
+                batch = consumer.poll(timeout_ms=1000)
+                for _tp, messages in batch.items():
+                    for msg in messages:
+                        _handle_verified_anomaly(msg.value)
 
             consumer.close()
+            break
         except Exception as e:
             logger.error(f"Kafka consumer hatasi: {e}")
             if not _stop_event.is_set():
@@ -216,8 +224,27 @@ def list_anomalies(limit: int = 50, user: dict = Depends(get_current_user)):
 @app.post('/api/internal/alert')
 async def internal_alert(event: dict):
     """Kamera pipeline'dan dogrudan bildirim alir."""
-    payload = await _push_alert(event)
-    return {'ok': True, 'alert': payload}
+    try:
+        payload = await _push_alert(event)
+        return {'ok': True, 'alert': payload}
+    except Exception as e:
+        logger.error(f"internal/alert hatasi: {e}")
+        # Panel yine de bir sey gorsun — minimal yayin
+        fallback = {
+            'type': 'anomaly_alert',
+            'id': None,
+            'camera_id': event.get('camera_id'),
+            'track_id': event.get('track_id'),
+            'anomaly_type': event.get('anomaly_type'),
+            'confidence_score': event.get('confidence_score'),
+            'report': f"Alarm: {event.get('anomaly_type')} (track {event.get('track_id')})",
+            'timestamp': event.get('timestamp'),
+        }
+        try:
+            await manager.broadcast(fallback)
+        except Exception:
+            pass
+        return {'ok': True, 'alert': fallback, 'warning': str(e)}
 
 
 @app.get('/api/push/status')

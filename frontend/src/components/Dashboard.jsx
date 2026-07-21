@@ -6,14 +6,16 @@ const ANOMALY_COLORS = {
   FALL: 'bg-red-600',
   PERSON_ENTERED: 'bg-blue-600',
   RUN: 'bg-orange-500',
-  ZONE_VIOLATION: 'bg-purple-600'
+  ZONE_VIOLATION: 'bg-purple-600',
+  RUN_ZONE: 'bg-orange-600'
 }
 
 const ANOMALY_LABELS = {
   FALL: 'Dusme',
   PERSON_ENTERED: 'Kisi Girdi',
   RUN: 'Kosma',
-  ZONE_VIOLATION: 'Alan Ihlali'
+  ZONE_VIOLATION: 'Alan Ihlali',
+  RUN_ZONE: 'Kosarak Alan Ihlali'
 }
 
 // Vite proxy uzerinden ayni origin (5173) — CORS/WS sorunu olmaz
@@ -24,8 +26,15 @@ const wsUrl = import.meta.env.VITE_WS_URL ||
 function showAlert(data, setAlerts, setPopup) {
   if (!data || data.type !== 'anomaly_alert') return
   setAlerts((prev) => {
-    const key = `${data.id}-${data.timestamp}-${data.track_id}`
-    if (prev.some((a) => `${a.id}-${a.timestamp}-${a.track_id}` === key)) return prev
+    const tid = data.track_id
+    const cam = data.camera_id
+    const atype = data.anomaly_type
+    // Ayni kisi + ayni tip: tek kart (WS + DB polling ciftini engeller)
+    const dup = prev.some(
+      (a) => a.track_id === tid && a.camera_id === cam && a.anomaly_type === atype
+    )
+    if (dup) return prev
+    if (data.id != null && prev.some((a) => a.id != null && a.id === data.id)) return prev
     return [data, ...prev].slice(0, 20)
   })
   setPopup(data)
@@ -52,7 +61,9 @@ export default function Dashboard({ user, onLogout }) {
       const items = data.items || []
       setHistory(items)
 
-      if (items.length > 0 && items[0].id > lastDbIdRef.current) {
+      // Canli listeye sadece WebSocket yokken DB'den ekle (cift bildirim olmasin)
+      const wsOpen = wsRef.current?.readyState === WebSocket.OPEN
+      if (!wsOpen && items.length > 0 && items[0].id > lastDbIdRef.current) {
         const latest = items[0]
         if (lastDbIdRef.current > 0) {
           showAlert({
@@ -67,8 +78,8 @@ export default function Dashboard({ user, onLogout }) {
           }, setAlerts, setPopup)
         }
         lastDbIdRef.current = items[0].id
-      } else if (items.length > 0 && lastDbIdRef.current === 0) {
-        lastDbIdRef.current = items[0].id
+      } else if (items.length > 0) {
+        lastDbIdRef.current = Math.max(lastDbIdRef.current, items[0].id)
       }
     } catch (e) {
       console.error('Gecmis kayitlar alinamadi', e)
