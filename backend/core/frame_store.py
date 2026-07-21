@@ -50,8 +50,13 @@ def save_live_frame(camera_id: str, frame, every_n: int = 5, frame_idx: int = 0)
         logger.debug(f"Canli kare yazilamadi: {e}")
 
 
-def save_alert_snapshot(camera_id: str, frame, track_id: int | None = None) -> str | None:
-    """Anomali anindaki kareyi kaydeder; panelde tiklaninca gosterilir."""
+def save_alert_snapshot(
+    camera_id: str,
+    frame,
+    track_id: int | None = None,
+    meta: dict | None = None,
+) -> str | None:
+    """Bildirim anindaki kareyi kaydeder (panel alarm galerisi)."""
     try:
         _ensure_dirs()
         key = f'{camera_id}_{int(time.time() * 1000)}_{track_id or 0}'
@@ -60,10 +65,26 @@ def save_alert_snapshot(camera_id: str, frame, track_id: int | None = None) -> s
         if not ok:
             return None
         path.write_bytes(buf.tobytes())
+
+        payload = {
+            'id': key,
+            'camera_id': camera_id,
+            'track_id': track_id,
+            'timestamp': time.time(),
+            'anomaly_type': (meta or {}).get('anomaly_type'),
+            'confidence_score': (meta or {}).get('confidence_score'),
+            'motion': (meta or {}).get('motion'),
+            'report': (meta or {}).get('report'),
+        }
+        (SNAP_DIR / f'{key}.json').write_text(
+            json.dumps(payload, ensure_ascii=False), encoding='utf-8',
+        )
+
         snaps = sorted(SNAP_DIR.glob('*.jpg'), key=lambda p: p.stat().st_mtime, reverse=True)
         for old in snaps[80:]:
             try:
-                old.unlink()
+                old.unlink(missing_ok=True)
+                old.with_suffix('.json').unlink(missing_ok=True)
             except OSError:
                 pass
         return key
@@ -178,6 +199,38 @@ def snapshot_path(snapshot_id: str) -> Path | None:
     return p if p.is_file() else None
 
 
+def delete_alert_snapshots(ids: list[str]) -> dict:
+    """Secilen alarm anliklarini siler."""
+    _ensure_dirs()
+    deleted = []
+    missing = []
+    for raw in ids:
+        sid = str(raw or '').strip()
+        if not sid or '/' in sid or '\\' in sid or '..' in sid:
+            missing.append(sid)
+            continue
+        jpg = SNAP_DIR / f'{sid}.jpg'
+        meta = SNAP_DIR / f'{sid}.json'
+        removed = False
+        if jpg.is_file():
+            try:
+                jpg.unlink()
+                removed = True
+            except OSError:
+                pass
+        if meta.is_file():
+            try:
+                meta.unlink()
+                removed = True
+            except OSError:
+                pass
+        if removed:
+            deleted.append(sid)
+        else:
+            missing.append(sid)
+    return {'deleted': deleted, 'missing': missing, 'count': len(deleted)}
+
+
 def gallery_path(gallery_id: str) -> Path | None:
     if not gallery_id or '/' in gallery_id or '\\' in gallery_id or '..' in gallery_id:
         return None
@@ -185,7 +238,78 @@ def gallery_path(gallery_id: str) -> Path | None:
     return p if p.is_file() else None
 
 
+def _parse_snapshot_stem(stem: str) -> dict:
+    """cam_01_1784635329653_11 -> camera_id, timestamp_ms, track_id"""
+    parts = stem.rsplit('_', 2)
+    if len(parts) == 3 and parts[1].isdigit():
+        cam, ts_ms, tid = parts
+        return {
+            'id': stem,
+            'snapshot_id': stem,
+            'camera_id': cam,
+            'track_id': int(tid) if tid.isdigit() else tid,
+            'timestamp': int(ts_ms) / 1000.0 if len(ts_ms) >= 12 else float(ts_ms),
+        }
+    return {
+        'id': stem,
+        'snapshot_id': stem,
+        'camera_id': None,
+        'track_id': None,
+        'timestamp': None,
+    }
+
+
+def list_alert_snapshots(camera_id: str | None = None, limit: int = 40) -> list[dict]:
+    """Bildirim aninda alinmis ekran goruntuleri (jpg + meta)."""
+    _ensure_dirs()
+    by_id: dict[str, dict] = {}
+
+    for meta_path in SNAP_DIR.glob('*.json'):
+        try:
+            data = json.loads(meta_path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        gid = data.get('id') or meta_path.stem
+        if not snapshot_path(gid):
+            continue
+        by_id[gid] = {
+            'id': gid,
+            'snapshot_id': gid,
+            'camera_id': data.get('camera_id'),
+            'track_id': data.get('track_id'),
+            'timestamp': data.get('timestamp'),
+            'anomaly_type': data.get('anomaly_type'),
+            'confidence_score': data.get('confidence_score'),
+            'motion': data.get('motion'),
+            'report': data.get('report'),
+        }
+
+    for jpg in SNAP_DIR.glob('*.jpg'):
+        stem = jpg.stem
+        if stem in by_id:
+            continue
+        parsed = _parse_snapshot_stem(stem)
+        if parsed.get('timestamp') is None:
+            parsed['timestamp'] = jpg.stat().st_mtime
+        by_id[stem] = parsed
+
+    items = list(by_id.values())
+    if camera_id:
+        items = [x for x in items if x.get('camera_id') == camera_id]
+
+    def sort_key(x):
+        t = x.get('timestamp') or 0
+        try:
+            return float(t)
+        except (TypeError, ValueError):
+            return 0.0
+
+    items.sort(key=sort_key, reverse=True)
+    return items[:limit]
+
+
 def list_gallery(camera_id: str | None = None, limit: int = 40) -> list[dict]:
+    """Eski net-varlik galerisi (opsiyonel)."""
     _ensure_dirs()
     items: list[dict] = []
     for meta_path in sorted(GALLERY_DIR.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):

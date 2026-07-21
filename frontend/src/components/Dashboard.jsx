@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { apiFetch } from '../api'
 import MetricsPanel from './MetricsPanel'
 import LivePreview from './LivePreview'
+import AlertGallery from './AlertGallery'
 import ZoneMap from './ZoneMap'
 import AlertFilters, { matchFilters } from './AlertFilters'
 import StatsSummary from './StatsSummary'
@@ -677,6 +678,7 @@ export default function Dashboard({ user, onLogout }) {
                 ))}
               </div>
             )}
+            <AlertGallery cameraId={previewCam} refreshKey={alerts.length} liveAlerts={alerts} />
             <StatsSummary history={history} />
           </div>
           <div className="space-y-5">

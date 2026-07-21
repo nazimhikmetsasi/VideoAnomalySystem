@@ -161,6 +161,16 @@ class VideoKafkaProducer:
                 presence = self.analyzer.analyze_presence(tid, self.camera_id, bbox)
                 if presence:
                     display = draw_anomaly_alert(display, presence)
+                    snap_id = save_alert_snapshot(
+                        self.camera_id, display, presence.get('track_id'),
+                        meta={
+                            'anomaly_type': presence.get('anomaly_type'),
+                            'confidence_score': presence.get('confidence_score'),
+                            'motion': presence.get('motion'),
+                        },
+                    )
+                    if snap_id:
+                        presence['snapshot_id'] = snap_id
                     self._publish_anomaly(presence, [])
                     notify_api(presence)
 
@@ -220,7 +230,14 @@ class VideoKafkaProducer:
                     self._latest_anomaly = anomaly
                     display = draw_anomaly_alert(display, anomaly)
                     landmarks = pose_data['landmarks'] if pose_data else []
-                    snap_id = save_alert_snapshot(self.camera_id, display, anomaly.get('track_id'))
+                    snap_id = save_alert_snapshot(
+                        self.camera_id, display, anomaly.get('track_id'),
+                        meta={
+                            'anomaly_type': anomaly.get('anomaly_type'),
+                            'confidence_score': anomaly.get('confidence_score'),
+                            'motion': anomaly.get('motion') or anomaly.get('motion_confirmed'),
+                        },
+                    )
                     if snap_id:
                         anomaly['snapshot_id'] = snap_id
                     # Panel icin dogrudan API; Kafka anomaly cift bildirim uretmesin

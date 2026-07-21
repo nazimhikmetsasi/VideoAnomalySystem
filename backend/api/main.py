@@ -25,7 +25,10 @@ from core.logging_config import setup_logging
 from core.push_notifier import send_push_alert, status as fcm_status, format_push_message
 from core.phone_notifier import send_phone_alert, phone_status
 from core.camera_config import load_cameras_config
-from core.frame_store import live_path, snapshot_path, gallery_path, list_gallery
+from core.frame_store import (
+    live_path, snapshot_path, gallery_path, list_gallery, list_alert_snapshots,
+    delete_alert_snapshots,
+)
 from pathlib import Path
 
 logger = setup_logging('api', 'api.log')
@@ -285,9 +288,34 @@ def media_live(camera_id: str, user: dict = Depends(get_current_user)):
 
 @app.get('/api/media/gallery/{camera_id}')
 def media_gallery_list(camera_id: str, user: dict = Depends(get_current_user), limit: int = 40):
-    """Net varlik anlarinin listesi (panel oklarla gezer)."""
+    """Net varlik anlarinin listesi (eski galeri)."""
     items = list_gallery(camera_id, limit=min(max(limit, 1), 80))
     return {'items': items, 'count': len(items)}
+
+
+@app.get('/api/media/alert-snapshots')
+def media_alert_snapshots(
+    user: dict = Depends(get_current_user),
+    camera_id: str | None = None,
+    limit: int = 40,
+):
+    """Bildirim dusunce alinan ekran goruntuleri."""
+    items = list_alert_snapshots(camera_id, limit=min(max(limit, 1), 80))
+    return {'items': items, 'count': len(items)}
+
+
+class SnapshotDeleteBody(BaseModel):
+    ids: list[str]
+
+
+@app.delete('/api/media/alert-snapshots')
+def media_alert_snapshots_delete(
+    body: SnapshotDeleteBody,
+    user: dict = Depends(get_current_user),
+):
+    """Secilen alarm anliklarini sil."""
+    result = delete_alert_snapshots(body.ids or [])
+    return {'ok': True, **result}
 
 
 @app.get('/api/media/gallery/image/{gallery_id}')
