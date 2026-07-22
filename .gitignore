@@ -6,6 +6,7 @@ data/test_videos/
 data/live/
 data/snapshots/
 data/gallery/
+data/reid_gallery.npz
 *.pt
 *.trt
 *.task
