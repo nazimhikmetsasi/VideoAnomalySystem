@@ -140,27 +140,48 @@ export async function copyText(text) {
 }
 
 export function downloadTxt(text, filename) {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  triggerBlobDownload(
+    new Blob([text], { type: 'text/plain;charset=utf-8' }),
+    filename.endsWith('.txt') ? filename : `${filename}.txt`,
+  )
+}
+
+function triggerBlobDownload(blob, filename) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  // Hemen revoke edilirse bazi tarayicilarda indirme iptal olur
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
-/** Türkçe karakterleri PDF Helvetica için sadeleştir */
+/** Türkçe / unicode → PDF Helvetica (WinAnsi) guvenli ASCII */
 function toPdfLatin(text) {
   const map = {
     ş: 's', Ş: 'S', ı: 'i', İ: 'I', ğ: 'g', Ğ: 'G',
     ü: 'u', Ü: 'U', ö: 'o', Ö: 'O', ç: 'c', Ç: 'C',
     â: 'a', Â: 'A', î: 'i', Î: 'I', û: 'u', Û: 'U',
+    '‘': "'", '’': "'", '“': '"', '”': '"', '–': '-', '—': '-',
+    '…': '...', '·': '-', '•': '-', '\u00a0': ' ',
   }
-  return String(text).replace(/./g, (ch) => map[ch] || ch)
+  return String(text)
+    .replace(/./g, (ch) => map[ch] || ch)
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '?')
 }
 
 function pdfEscape(str) {
   return String(str).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+}
+
+function encodePdfBytes(str) {
+  const bytes = new Uint8Array(str.length)
+  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff
+  return bytes
 }
 
 /**
@@ -168,115 +189,120 @@ function pdfEscape(str) {
  * Ekrandaki / TXT raporda Türkçe tam kalır.
  */
 export function downloadPdfFile(text, filename, title = 'MCBU Gunluk Durum Raporu') {
-  const body = toPdfLatin(text)
-  const lines = []
-  const wrapWidth = 86
-  for (const raw of body.split(/\r?\n/)) {
-    const paragraph = raw.length ? raw : ' '
-    let rest = paragraph
-    while (rest.length > wrapWidth) {
-      let cut = rest.lastIndexOf(' ', wrapWidth)
-      if (cut < 40) cut = wrapWidth
-      lines.push(rest.slice(0, cut))
-      rest = rest.slice(cut).trimStart()
+  try {
+    const body = toPdfLatin(text || ' ')
+    const safeTitle = toPdfLatin(title || 'MCBU Rapor')
+    const dateLine = toPdfLatin(
+      new Date().toLocaleString('en-GB', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    )
+
+    const lines = []
+    const wrapWidth = 86
+    for (const raw of body.split(/\r?\n/)) {
+      const paragraph = raw.length ? raw : ' '
+      let rest = paragraph
+      while (rest.length > wrapWidth) {
+        let cut = rest.lastIndexOf(' ', wrapWidth)
+        if (cut < 40) cut = wrapWidth
+        lines.push(rest.slice(0, cut))
+        rest = rest.slice(cut).trimStart()
+      }
+      lines.push(rest || ' ')
     }
-    lines.push(rest)
-  }
-  if (!lines.length) lines.push(' ')
+    if (!lines.length) lines.push(' ')
 
-  const pageW = 595
-  const pageH = 842
-  const left = 50
-  const top = 800
-  const leading = 16
-  const maxLines = Math.floor((top - 50) / leading)
+    const pageW = 595
+    const pageH = 842
+    const left = 50
+    const top = 800
+    const leading = 16
+    const maxLines = Math.floor((top - 60) / leading)
 
-  const pages = []
-  for (let i = 0; i < lines.length; i += maxLines) {
-    pages.push(lines.slice(i, i + maxLines))
-  }
-  if (!pages.length) pages.push([' '])
+    const pageChunks = []
+    for (let i = 0; i < lines.length; i += maxLines) {
+      pageChunks.push(lines.slice(i, i + maxLines))
+    }
 
-  const objects = []
-  const add = (content) => {
-    objects.push(content)
-    return objects.length
-  }
+    const objects = []
+    const add = (content) => {
+      objects.push(content)
+      return objects.length
+    }
 
-  const kids = []
-  const fontId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    const fontId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    const kids = []
 
-  pages.forEach((pageLines, pageIdx) => {
-    let y = top
-    const contentLines = []
-    if (pageIdx === 0) {
-      contentLines.push(`BT /F1 14 Tf ${left} ${y} Td (${pdfEscape(toPdfLatin(title))}) Tj ET`)
-      y -= 28
-      contentLines.push(
-        `BT /F1 9 Tf ${left} ${y} Td (${pdfEscape(toPdfLatin(new Date().toLocaleString('tr-TR')))}) Tj ET`,
+    pageChunks.forEach((pageLines, pageIdx) => {
+      let y = top
+      const contentLines = []
+      if (pageIdx === 0) {
+        contentLines.push(`BT /F1 14 Tf ${left} ${y} Td (${pdfEscape(safeTitle)}) Tj ET`)
+        y -= 26
+        contentLines.push(`BT /F1 9 Tf ${left} ${y} Td (${pdfEscape(dateLine)}) Tj ET`)
+        y -= 22
+      }
+      contentLines.push('BT')
+      contentLines.push('/F1 11 Tf')
+      contentLines.push(`${left} ${y} Td`)
+      contentLines.push(`${leading} TL`)
+      pageLines.forEach((line, idx) => {
+        const safe = pdfEscape(line)
+        contentLines.push(idx === 0 ? `(${safe}) Tj` : `T* (${safe}) Tj`)
+      })
+      contentLines.push('ET')
+
+      const stream = contentLines.join('\n')
+      const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
+      const pageId = add(
+        `<< /Type /Page /Parent PAGES_REF /MediaBox [0 0 ${pageW} ${pageH}] ` +
+          `/Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`,
       )
-      y -= 24
-    }
-    contentLines.push('BT')
-    contentLines.push(`/F1 11 Tf`)
-    contentLines.push(`${left} ${y} Td`)
-    contentLines.push(`${leading} TL`)
-    pageLines.forEach((line, idx) => {
-      const safe = pdfEscape(line)
-      if (idx === 0) contentLines.push(`(${safe}) Tj`)
-      else contentLines.push(`T* (${safe}) Tj`)
+      kids.push(pageId)
     })
-    contentLines.push('ET')
-    const stream = contentLines.join('\n')
-    const contentId = add(
-      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+
+    const pagesId = add(
+      `<< /Type /Pages /Kids [${kids.map((id) => `${id} 0 R`).join(' ')}] /Count ${kids.length} >>`,
     )
-    const pageId = add(
-      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
-        `/Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`,
-    )
-    kids.push(pageId)
-  })
+    for (const pageId of kids) {
+      objects[pageId - 1] = objects[pageId - 1].replace('PAGES_REF', `${pagesId} 0 R`)
+    }
+    const catalogId = add(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`)
 
-  const pagesId = add(
-    `<< /Type /Pages /Kids [${kids.map((id) => `${id} 0 R`).join(' ')}] /Count ${kids.length} >>`,
-  )
-  // Patch parent refs in page objects
-  for (const pageId of kids) {
-    objects[pageId - 1] = objects[pageId - 1].replace('/Parent 0 0 R', `/Parent ${pagesId} 0 R`)
+    const parts = ['%PDF-1.4\n']
+    const offsets = [0]
+    for (let i = 0; i < objects.length; i++) {
+      offsets.push(parts.reduce((n, p) => n + p.length, 0))
+      parts.push(`${i + 1} 0 obj\n${objects[i]}\nendobj\n`)
+    }
+    const xrefPos = parts.reduce((n, p) => n + p.length, 0)
+    let xref = `xref\n0 ${objects.length + 1}\n`
+    xref += '0000000000 65535 f \n'
+    for (let i = 1; i <= objects.length; i++) {
+      xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
+    }
+    parts.push(xref)
+    parts.push(`trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\n`)
+    parts.push(`startxref\n${xrefPos}\n%%EOF\n`)
+
+    const pdfStr = parts.join('')
+    const bytes = encodePdfBytes(pdfStr)
+    const name = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
+    triggerBlobDownload(new Blob([bytes], { type: 'application/pdf' }), name)
+    return true
+  } catch (err) {
+    console.error('PDF indirme hatasi', err)
+    return false
   }
-
-  const catalogId = add(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`)
-
-  let pdf = '%PDF-1.4\n'
-  const offsets = [0]
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(pdf.length)
-    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`
-  }
-  const xrefPos = pdf.length
-  pdf += `xref\n0 ${objects.length + 1}\n`
-  pdf += '0000000000 65535 f \n'
-  for (let i = 1; i <= objects.length; i++) {
-    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\n`
-  pdf += `startxref\n${xrefPos}\n%%EOF`
-
-  const blob = new Blob([pdf], { type: 'application/pdf' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
-  a.click()
-  URL.revokeObjectURL(url)
-  return true
 }
 
-/** Yazdırılabilir HTML indir + isteğe bağlı yazdır (eski blank sekme hatasını önler) */
-export function downloadPdfViaPrint(text, title = 'MCBU Günlük Rapor') {
+/** PDF indir (blob + gecikmeli revoke). */
+export function downloadPdfViaPrint(text, title = 'MCBU Gunluk Durum Raporu') {
   const day = new Date().toISOString().slice(0, 10)
-  // Asıl indirme: gerçek PDF dosyası
-  downloadPdfFile(text, `mcbu_gunluk_rapor_${day}.pdf`, title)
-  return true
+  return downloadPdfFile(text, `mcbu_gunluk_rapor_${day}.pdf`, title)
 }

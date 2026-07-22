@@ -392,10 +392,6 @@ export default function DashboardNeo({ user, onLogout }) {
                 </div>
               )}
               <div className="neo-card !p-0 overflow-hidden">
-                <div className="px-5 py-3 border-b border-[var(--line)] flex items-center justify-between">
-                  <h2 className="neo-card__title">Canlı önizleme</h2>
-                  <span className="text-xs text-[var(--muted)]">{previewCam}</span>
-                </div>
                 <LivePreview cameraId={previewCam} />
               </div>
               <AlertGallery cameraId={previewCam} refreshKey={alerts.length} liveAlerts={alerts} />

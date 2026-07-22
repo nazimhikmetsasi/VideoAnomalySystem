@@ -12,7 +12,10 @@ Gemini LLM Kurulumu (Asama 2)
 
    LLM_PROVIDER=gemini
    GEMINI_API_KEY=AIza...buraya_yapistir
-   LLM_MODEL=gemini-2.0-flash
+   LLM_MODEL=gemini-flash-lite-latest
+   (Not: flash-latest dusunme tokeni yuzunden metni yarida keser.
+    Kod otomatik olarak lite modele cevirir; yine de yarim metin gelirse
+    devam ettirir, olmazsa tam sablon raporu doner. API'yi yeniden baslatin.)
 
 3) API'yi yeniden baslat
    Anahtar degisikligi icin run_api.bat penceresini kapatip tekrar ac:

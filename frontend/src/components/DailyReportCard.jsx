@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../api'
 import {
   buildDailySummary,
@@ -20,6 +20,7 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [reportTotal, setReportTotal] = useState(null)
+  const reportBoxRef = useRef(null)
 
   const modeLabel =
     mode === 'llm'
@@ -30,7 +31,8 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
           ? 'Gemini hazır'
           : 'Şablon hazır'
 
-  const stale = report && reportTotal != null && reportTotal !== summary.total
+  const hasReport = Boolean(report && report.trim())
+  const stale = hasReport && reportTotal != null && reportTotal !== summary.total
 
   useEffect(() => {
     if (stale) {
@@ -42,12 +44,12 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
     setReport('')
     setMode(null)
     setReportTotal(null)
-    setMsg('Rapor temizlendi.')
+    setMsg('Rapor temizlendi. Tekrar oluşturmak için Rapor oluştur’a basın.')
   }
 
   const generate = async () => {
     setBusy(true)
-    setMsg('')
+    setMsg('Rapor üretiliyor, birkaç saniye sürebilir…')
     try {
       const res = await apiFetch('/api/reports/daily', {
         method: 'POST',
@@ -55,31 +57,37 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
       })
       if (res.ok) {
         const data = await res.json()
-        setReport(data.report || '')
+        const text = (data.report || '').trim()
+        setReport(text)
         setMode(data.mode || 'template')
         setReportTotal(summary.total)
-        setMsg('Rapor oluşturuldu.')
+        setMsg(
+          text
+            ? `Rapor hazır (${data.mode === 'llm' ? 'Gemini' : 'şablon'}). Kopyala / TXT / PDF artık açık.`
+            : 'Boş rapor döndü — tekrar deneyin.',
+        )
+        queueMicrotask(() => reportBoxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
       } else {
         const text = buildTemplateDailyReport(summary)
         setReport(text)
         setMode('template')
         setReportTotal(summary.total)
-        setMsg('API yanıt vermedi — şablon rapor kullanıldı.')
+        setMsg('API yanıt vermedi — şablon rapor kullanıldı. İndirme butonları açıldı.')
       }
     } catch {
       const text = buildTemplateDailyReport(summary)
       setReport(text)
       setMode('template')
       setReportTotal(summary.total)
-      setMsg('Bağlantı yok — şablon rapor kullanıldı.')
+      setMsg('Bağlantı yok — şablon rapor kullanıldı. İndirme butonları açıldı.')
     } finally {
       setBusy(false)
     }
   }
 
   const onCopy = async () => {
-    if (!report) {
-      setMsg('Önce rapor oluşturun.')
+    if (!hasReport) {
+      setMsg('Önce sağdaki Rapor oluştur’a basın.')
       return
     }
     const ok = await copyText(report)
@@ -87,8 +95,8 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
   }
 
   const onTxt = () => {
-    if (!report) {
-      setMsg('Önce rapor oluşturun.')
+    if (!hasReport) {
+      setMsg('Önce sağdaki Rapor oluştur’a basın.')
       return
     }
     const day = new Date().toISOString().slice(0, 10)
@@ -97,12 +105,19 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
   }
 
   const onPdf = () => {
-    if (!report) {
-      setMsg('Önce rapor oluşturun.')
+    if (!hasReport) {
+      setMsg('Önce sağdaki Rapor oluştur’a basın.')
       return
     }
-    const ok = downloadPdfViaPrint(report, 'MCBU Gunluk Durum Raporu')
-    setMsg(ok ? 'PDF dosyası indirildi.' : 'PDF indirilemedi.')
+    try {
+      const ok = downloadPdfViaPrint(report, 'MCBU Gunluk Durum Raporu')
+      setMsg(ok
+        ? 'PDF indirildi — İndirilenler klasörüne bakın.'
+        : 'PDF oluşturulamadı. TXT indirip deneyin.')
+    } catch (e) {
+      console.error(e)
+      setMsg('PDF hatası — TXT indirip deneyin.')
+    }
   }
 
   const onCsv = () => {
@@ -120,7 +135,7 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {report ? (
+          {hasReport ? (
             <button type="button" className="neo-btn neo-btn--ghost" onClick={clearReport}>
               Temizle
             </button>
@@ -136,12 +151,18 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
         </div>
       </div>
 
+      <p className="text-xs text-[var(--muted)] mb-3">
+        Sıra: <strong className="text-[var(--text)]">Rapor oluştur</strong>
+        {' '}→ metin gelsin → sonra Kopyala / TXT / PDF.
+      </p>
+
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           type="button"
           className="neo-btn neo-btn--ghost !text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={onCopy}
-          disabled={!report}
+          disabled={!hasReport || busy}
+          title={hasReport ? 'Raporu kopyala' : 'Önce rapor oluştur'}
         >
           Kopyala
         </button>
@@ -149,7 +170,8 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
           type="button"
           className="neo-btn neo-btn--ghost !text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={onTxt}
-          disabled={!report}
+          disabled={!hasReport || busy}
+          title={hasReport ? 'TXT indir' : 'Önce rapor oluştur'}
         >
           TXT indir
         </button>
@@ -157,7 +179,8 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
           type="button"
           className="neo-btn neo-btn--ghost !text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={onPdf}
-          disabled={!report}
+          disabled={!hasReport || busy}
+          title={hasReport ? 'PDF indir' : 'Önce rapor oluştur'}
         >
           PDF indir
         </button>
@@ -166,8 +189,11 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
         </button>
       </div>
 
-      {report ? (
-        <div className={`rounded-xl border p-4 ${stale ? 'border-amber-500/50 bg-amber-500/5' : 'border-[var(--line)] bg-[var(--bg0)]/40'}`}>
+      {hasReport ? (
+        <div
+          ref={reportBoxRef}
+          className={`rounded-xl border p-4 ${stale ? 'border-amber-500/50 bg-amber-500/5' : 'border-[var(--line)] bg-[var(--bg0)]/40'}`}
+        >
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
               {mode === 'llm' ? 'Gemini özeti' : 'Şablon özeti'}
@@ -185,8 +211,8 @@ export default function DailyReportCard({ history, cameras, llmStatus }) {
         </div>
       ) : (
         <p className="text-sm text-[var(--muted)] py-2">
-          Bugünkü uyarı sayısı, tip dağılımı, kamera ve kritik olaylardan kısa Türkçe özet üretir.
-          Gemini açıksa AI, değilse şablon kullanılır.
+          Henüz rapor yok. Sağ üstteki <span className="text-[var(--text)]">Rapor oluştur</span> ile
+          üretin; ardından soldaki Kopyala / TXT / PDF aktif olur.
         </p>
       )}
 

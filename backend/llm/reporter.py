@@ -1,7 +1,10 @@
 import os
 import logging
 import time
+from pathlib import Path
+
 import httpx
+from dotenv import dotenv_values
 
 logger = logging.getLogger('api')
 
@@ -13,6 +16,16 @@ ANOMALY_LABELS = {
     'RUN_ZONE': 'koşarak yasaklı alan ihlali',
 }
 
+# Dusunme tokeni tuketip metni MAX_TOKENS ile kesen modeller
+_THINKING_MODELS = {
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash-thinking-exp',
+}
+_SAFE_GEMINI_MODEL = 'gemini-flash-lite-latest'
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / '.env'
+
 
 class LLMReporter:
     """Teknik anomali verilerini Turkce rapora donusturur."""
@@ -22,13 +35,34 @@ class LLMReporter:
         # Kota/429 sonrasi bir sure sadece sablon kullan (panel gecikmesin)
         self._llm_cooldown_until = 0.0
 
+    def _file_env(self, key: str, default=None):
+        """`.env` dosyasini once oku — process env eski kalsa bile model guncellenir."""
+        if _ENV_FILE.exists():
+            vals = dotenv_values(_ENV_FILE)
+            raw = vals.get(key)
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+        return os.getenv(key, default)
+
     def _refresh_config(self):
-        self.provider = os.getenv('LLM_PROVIDER', 'gemini').lower()
-        self.gemini_key = (os.getenv('GEMINI_API_KEY') or '').strip()
-        self.openai_key = (os.getenv('OPENAI_API_KEY') or '').strip()
-        self.model = os.getenv('LLM_MODEL', 'gemini-2.0-flash')
-        self.http_timeout = float(os.getenv('LLM_HTTP_TIMEOUT_SEC', 4))
-        self.quota_cooldown = float(os.getenv('LLM_QUOTA_COOLDOWN_SEC', 600))
+        self.provider = (self._file_env('LLM_PROVIDER', 'gemini') or 'gemini').lower()
+        self.gemini_key = (self._file_env('GEMINI_API_KEY') or '').strip()
+        self.openai_key = (self._file_env('OPENAI_API_KEY') or '').strip()
+        model = (self._file_env('LLM_MODEL', _SAFE_GEMINI_MODEL) or _SAFE_GEMINI_MODEL).strip()
+        # Dusunme modelleri cumleyi yarida keser → zorunlu guvenli model
+        if (
+            model in _THINKING_MODELS
+            or 'thinking' in model.lower()
+            or (model.startswith('gemini') and model.endswith('-latest') and 'lite' not in model)
+        ):
+            if model != _SAFE_GEMINI_MODEL:
+                logger.warning(
+                    f"LLM_MODEL={model} kesik metin uretebilir → {_SAFE_GEMINI_MODEL}"
+                )
+            model = _SAFE_GEMINI_MODEL
+        self.model = model
+        self.http_timeout = float(self._file_env('LLM_HTTP_TIMEOUT_SEC', '4') or 4)
+        self.quota_cooldown = float(self._file_env('LLM_QUOTA_COOLDOWN_SEC', '600') or 600)
 
     def _llm_available(self) -> bool:
         return time.time() >= self._llm_cooldown_until
@@ -165,24 +199,86 @@ class LLMReporter:
             block = data.get('promptFeedback') or {}
             raise RuntimeError(f"Gemini yanit vermedi: {block}")
 
-        parts = candidates[0].get('content', {}).get('parts') or []
-        text = ''.join(p.get('text', '') for p in parts).strip()
+        cand = candidates[0]
+        parts = cand.get('content', {}).get('parts') or []
+        # Dusunme (thought) parcalarini atla — sadece rapor metni
+        text = ''.join(
+            p.get('text', '') for p in parts
+            if p.get('text') and not p.get('thought')
+        ).strip()
         if not text:
-            raise RuntimeError("Gemini bos metin dondurdu")
+            # Bazi modeller tumunu text'te dondurur
+            text = ''.join(p.get('text', '') for p in parts).strip()
+        if not text:
+            finish = cand.get('finishReason')
+            raise RuntimeError(f"Gemini bos metin dondurdu (finish={finish})")
         return text
 
-    def _gemini_report(self, event: dict) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        payload = {
-            'contents': [{'parts': [{'text': self._build_prompt(event)}]}],
-            'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 256},
+    @staticmethod
+    def _looks_complete(text: str) -> bool:
+        """Cumle yarida kesilmis mi? Noktalama ile bitmeli."""
+        t = (text or '').strip()
+        if len(t) < 30:
+            return False
+        return t[-1] in '.!?…' or t.endswith(('."', ".'", '.)', '!”', '?”'))
+
+    def _gemini_call(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.3):
+        """Tek Gemini cagrisi → (text, finishReason)."""
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model}:generateContent"
+        )
+        gen_cfg = {
+            'temperature': temperature,
+            'maxOutputTokens': max_tokens,
         }
-        with httpx.Client(timeout=self.http_timeout) as client:
+        # Destekleyen modellerde dusunmeyi kapat (kesik metni onler)
+        if 'lite' not in self.model:
+            gen_cfg['thinkingConfig'] = {'thinkingBudget': 0}
+        payload = {
+            'contents': [{'parts': [{'text': prompt}]}],
+            'generationConfig': gen_cfg,
+        }
+        timeout = max(self.http_timeout, 60.0)
+        with httpx.Client(timeout=timeout) as client:
             resp = client.post(url, params={'key': self.gemini_key}, json=payload)
             if resp.status_code != 200:
                 detail = resp.text[:300]
                 raise RuntimeError(f"Gemini HTTP {resp.status_code}: {detail}")
-            return self._extract_gemini_text(resp.json())
+            data = resp.json()
+        text = self._extract_gemini_text(data)
+        finish = ((data.get('candidates') or [{}])[0]).get('finishReason') or ''
+        if finish == 'MAX_TOKENS':
+            logger.warning("Gemini finishReason=MAX_TOKENS — devam denenecek")
+        return text, finish
+
+    def _gemini_complete(self, prompt: str, max_tokens: int = 2048, rounds: int = 3) -> str:
+        """Tam cumle uretene kadar devam ettir; yine yarimsa hata firlat."""
+        text, finish = self._gemini_call(prompt, max_tokens=max_tokens)
+        for _ in range(rounds - 1):
+            if finish != 'MAX_TOKENS' and self._looks_complete(text):
+                return text
+            cont = (
+                "Asagidaki Turkce guvenlik raporunu yarida kaldigi yerden devam ettirip "
+                "tamamla. Onceki metni tekrar etme; sadece devamini yaz. "
+                "Son cumleyi bitir ve raporu nokta ile kapat.\n\n"
+                f"Onceki metin:\n{text}"
+            )
+            more, finish = self._gemini_call(cont, max_tokens=max_tokens, temperature=0.2)
+            text = f"{text.rstrip()} {more.lstrip()}".strip()
+        if not self._looks_complete(text):
+            raise RuntimeError('Gemini raporu yarim kaldi (tamamlanamadi)')
+        return text
+
+    def _gemini_report(self, event: dict) -> str:
+        return self._gemini_complete(self._build_prompt(event), max_tokens=1024, rounds=2)
+
+    def _gemini_text_or_raise(self, data: dict) -> str:
+        text = self._extract_gemini_text(data)
+        finish = ((data.get('candidates') or [{}])[0]).get('finishReason')
+        if finish == 'MAX_TOKENS':
+            logger.warning("Gemini finishReason=MAX_TOKENS — metin kesik olabilir")
+        return text
 
     def _openai_report(self, event: dict) -> str:
         url = 'https://api.openai.com/v1/chat/completions'
@@ -227,29 +323,36 @@ class LLMReporter:
         )
 
     def generate_daily_report(self, summary: dict) -> dict:
-        """Gunluk ozet raporu — Gemini varsa AI, yoksa sablon."""
+        """Gunluk ozet raporu — Gemini varsa AI, yarimsa/sablon garantili tam metin."""
         self._refresh_config()
         status = self.status()
         mode = status['mode']
+        template = self._template_daily(summary)
         text = None
 
         if mode == 'llm' and self.provider == 'gemini' and self.gemini_key:
             try:
                 text = self._gemini_daily(summary)
+                if not self._looks_complete(text):
+                    raise RuntimeError('Gemini gunluk raporu yarim')
             except Exception as e:
                 self._trip_quota_cooldown(e)
                 logger.warning(f"Gemini gunluk rapor hatasi, sablon: {e}")
                 mode = 'template'
+                text = None
         elif mode == 'llm' and self.provider == 'openai' and self.openai_key:
             try:
                 text = self._openai_daily(summary)
+                if not self._looks_complete(text):
+                    raise RuntimeError('OpenAI gunluk raporu yarim')
             except Exception as e:
                 self._trip_quota_cooldown(e)
                 logger.warning(f"OpenAI gunluk rapor hatasi, sablon: {e}")
                 mode = 'template'
+                text = None
 
         if not text:
-            text = self._template_daily(summary)
+            text = template
             mode = 'template'
 
         return {
@@ -272,34 +375,22 @@ class LLMReporter:
                 f"- {tip} | kam={e.get('camera_id')} | id={e.get('track_id')} | "
                 f"guven={e.get('confidence_score')}"
             )
-        hourly = summary.get('hourly') or []
         peak = summary.get('peak_hour')
         return (
             "Sen bir guvenlik izleme operasyon asistanisin. Asagidaki gunluk istatistiklerden "
-            "kisa, resmi Turkce durum raporu yaz. 3-6 cumle. Madde isareti kullanma; "
-            "akici paragraf veya kisa paragraflar olsun. Uydurma bilgi ekleme.\n"
+            "resmi Turkce durum raporu yaz. Tam 4 kisa cumle; her cumleyi nokta ile bitir. "
+            "Cumleleri yarida kesme. Madde isareti kullanma. Toplam uyari, tip dagilimi, "
+            "kamera, yogun saat ve kritik olaylardan bahset. Uydurma bilgi ekleme.\n"
             f"Tarih: {summary.get('date')}\n"
             f"Toplam uyari: {summary.get('total', 0)}\n"
             f"Tip dagilimi: {type_lines}\n"
             f"Kameralar: {', '.join(summary.get('cameras') or []) or 'yok'}\n"
             f"En yogun saat: {peak if peak is not None else 'yok'} (0-23)\n"
-            f"Saatlik sayilar: {hourly}\n"
             f"Kritik olaylar:\n" + ('\n'.join(top_lines) if top_lines else 'yok')
         )
 
     def _gemini_daily(self, summary: dict) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        payload = {
-            'contents': [{'parts': [{'text': self._daily_prompt(summary)}]}],
-            'generationConfig': {'temperature': 0.35, 'maxOutputTokens': 512},
-        }
-        timeout = max(self.http_timeout, 12.0)
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(url, params={'key': self.gemini_key}, json=payload)
-            if resp.status_code != 200:
-                detail = resp.text[:300]
-                raise RuntimeError(f"Gemini HTTP {resp.status_code}: {detail}")
-            return self._extract_gemini_text(resp.json())
+        return self._gemini_complete(self._daily_prompt(summary), max_tokens=2048, rounds=3)
 
     def _openai_daily(self, summary: dict) -> str:
         url = 'https://api.openai.com/v1/chat/completions'
