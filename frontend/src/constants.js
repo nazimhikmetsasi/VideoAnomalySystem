@@ -49,31 +49,73 @@ export const DATE_RANGES = [
 export const THEME_KEY = 'mcbu_theme'
 export const SOUND_KEY = 'mcbu_sound'
 export const READ_KEY = 'mcbu_read_alerts'
-export const LAYOUT_KEY = 'mcbu_panel_layout'
+export const NAV_KEY = 'mcbu_panel_nav'
 
-export const LAYOUT_LABELS = {
-  classic: 'Klasik',
-  neo: 'Şablon',
+export const PANEL_NAV_IDS = ['overview', 'live', 'history', 'camera', 'zones', 'metrics']
+
+export function getStoredNav() {
+  const t = localStorage.getItem(NAV_KEY)
+  return PANEL_NAV_IDS.includes(t) ? t : 'overview'
 }
 
-export function getStoredLayout() {
-  const t = localStorage.getItem(LAYOUT_KEY)
-  return t === 'neo' || t === 'classic' ? t : 'neo'
+export function saveNav(nav) {
+  if (PANEL_NAV_IDS.includes(nav)) {
+    localStorage.setItem(NAV_KEY, nav)
+  }
 }
 
-export function applyLayout(layout) {
-  localStorage.setItem(LAYOUT_KEY, layout)
-  document.documentElement.setAttribute('data-layout', layout)
+export function normalizeAlertTs(ts) {
+  if (ts == null || ts === '') return ''
+  if (typeof ts === 'number') {
+    const ms = ts < 1e12 ? ts * 1000 : ts
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString()
+  }
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString()
 }
 
-export function alertKey(a) {
+/** Kimlik yokken sabit parmak izi (kamera+varlık+tip+zaman). */
+export function alertFingerprint(a) {
   return [
-    a.id ?? '',
-    a.camera_id ?? '',
-    a.track_id ?? '',
-    a.anomaly_type ?? '',
-    a.timestamp ?? '',
+    a?.camera_id ?? '',
+    a?.track_id ?? '',
+    a?.anomaly_type ?? '',
+    normalizeAlertTs(a?.timestamp),
   ].join('|')
+}
+
+/**
+ * Birincil anahtar: DB id varsa id:N (yenilemede sabit),
+ * yoksa parmak izi.
+ */
+export function alertKey(a) {
+  if (a?.id != null && a.id !== '') return `id:${a.id}`
+  return alertFingerprint(a)
+}
+
+/** Aynı olayın olası tüm anahtarları (eski format + id + parmak izi). */
+export function alertKeyVariants(a) {
+  if (!a) return []
+  const keys = [
+    alertFingerprint(a),
+    // Eski formatlar (geriye dönük)
+    [a.id ?? '', a.camera_id ?? '', a.track_id ?? '', a.anomaly_type ?? '', a.timestamp ?? ''].join('|'),
+    [a.id ?? '', a.camera_id ?? '', a.track_id ?? '', a.anomaly_type ?? '', normalizeAlertTs(a.timestamp)].join('|'),
+  ]
+  if (a.id != null && a.id !== '') keys.push(`id:${a.id}`)
+  return [...new Set(keys.filter((k) => k && k !== '|||'))]
+}
+
+export function isAlertRead(readSet, a) {
+  if (!readSet || !a) return false
+  return alertKeyVariants(a).some((k) => readSet.has(k))
+}
+
+export function addAlertToReadSet(readSet, a) {
+  const next = new Set(readSet)
+  for (const k of alertKeyVariants(a)) next.add(k)
+  return next
 }
 
 export function loadReadSet() {
@@ -86,7 +128,7 @@ export function loadReadSet() {
 }
 
 export function saveReadSet(set) {
-  const arr = [...set].slice(-300)
+  const arr = [...set].slice(-800)
   localStorage.setItem(READ_KEY, JSON.stringify(arr))
 }
 

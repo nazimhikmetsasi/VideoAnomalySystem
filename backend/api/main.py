@@ -232,6 +232,16 @@ def llm_status(user: dict = Depends(get_current_user)):
     return llm_reporter.status()
 
 
+@app.post('/api/reports/daily')
+async def reports_daily(payload: dict, user: dict = Depends(get_current_user)):
+    """Gunluk durum raporu (Gemini veya sablon)."""
+    summary = payload.get('summary') if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        summary = payload if isinstance(payload, dict) else {}
+    result = await asyncio.to_thread(llm_reporter.generate_daily_report, summary)
+    return result
+
+
 @app.get('/api/llm/test')
 @app.post('/api/llm/test')
 def llm_test(user: dict = Depends(require_role('admin'))):

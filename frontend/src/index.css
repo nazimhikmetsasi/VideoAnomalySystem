@@ -724,33 +724,7 @@ h1, h2, h3, .font-display {
   }
 }
 
-/* —— Layout toggle (Klasik / Şablon) —— */
-.layout-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--bg2);
-  cursor: pointer;
-}
-
-.layout-toggle__opt {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 10px;
-  border-radius: 999px;
-  color: var(--muted);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.layout-toggle__opt.is-on {
-  background: var(--accent);
-  color: #04120f;
-}
-
-/* —— Neo şablon (örnek dashboard) —— */
+/* —— Neo panel (ana düzen) —— */
 .neo-shell {
   --neo-bg: #0e0e10;
   --neo-sidebar: #121214;
@@ -880,6 +854,14 @@ h1, h2, h3, .font-display {
   border-top: 1px solid var(--line);
 }
 
+.neo-sidebar__toggles {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+}
+
 .neo-main {
   min-width: 0;
   display: flex;
@@ -933,6 +915,10 @@ h1, h2, h3, .font-display {
 
 .neo-span-2 {
   grid-column: span 2;
+}
+
+.neo-span-4 {
+  grid-column: span 4;
 }
 
 .neo-card {
@@ -1128,6 +1114,117 @@ h1, h2, h3, .font-display {
   font-size: 0.9rem;
 }
 
+/* Sistem durumu kartı */
+.system-status__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  border: 1px solid var(--line);
+}
+
+.system-status__badge.is-ok {
+  color: #7dffa0;
+  background: rgba(125, 255, 160, 0.1);
+  border-color: rgba(125, 255, 160, 0.28);
+}
+
+.system-status__badge.is-bad {
+  color: #ff8a8a;
+  background: rgba(255, 138, 138, 0.1);
+  border-color: rgba(255, 138, 138, 0.28);
+}
+
+.system-status__badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.system-status__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.system-status__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg0) 45%, var(--neo-card));
+  color: inherit;
+  font: inherit;
+}
+
+button.system-status__row.is-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+button.system-status__row.is-clickable:hover {
+  border-color: color-mix(in srgb, var(--neo-lime) 45%, var(--line));
+  background: color-mix(in srgb, var(--neo-lime) 8%, var(--neo-card));
+}
+
+.system-status__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+}
+
+.system-status__icon.tone-ok {
+  color: #7dffa0;
+  background: rgba(125, 255, 160, 0.12);
+  border-color: rgba(125, 255, 160, 0.25);
+}
+
+.system-status__icon.tone-bad {
+  color: #ff8a8a;
+  background: rgba(255, 138, 138, 0.12);
+  border-color: rgba(255, 138, 138, 0.25);
+}
+
+.system-status__icon.tone-warn {
+  color: #e8a54b;
+  background: rgba(232, 165, 75, 0.12);
+  border-color: rgba(232, 165, 75, 0.28);
+}
+
+.system-status__icon.tone-accent,
+.system-status__icon.tone-muted {
+  color: var(--neo-lime);
+  background: color-mix(in srgb, var(--neo-lime) 14%, transparent);
+  border-color: color-mix(in srgb, var(--neo-lime) 28%, var(--line));
+}
+
+.system-status__pill {
+  font-size: 0.65rem;
+  flex-shrink: 0;
+}
+
+.system-status__pill.tone-ok { color: #7dffa0; }
+.system-status__pill.tone-bad { color: #ff8a8a; }
+.system-status__pill.tone-warn { color: #e8a54b; }
+.system-status__pill.tone-accent,
+.system-status__pill.tone-muted { color: var(--neo-lime); }
+
 /* İç içe panel-surface: neo kart içinde çift çerçeveyi kaldır */
 .neo-shell .neo-card .panel-surface {
   background: transparent;
@@ -1147,6 +1244,9 @@ h1, h2, h3, .font-display {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .neo-span-2 {
+    grid-column: span 2;
+  }
+  .neo-span-4 {
     grid-column: span 2;
   }
 }
@@ -1193,7 +1293,8 @@ h1, h2, h3, .font-display {
   .neo-bento {
     grid-template-columns: 1fr;
   }
-  .neo-span-2 {
+  .neo-span-2,
+  .neo-span-4 {
     grid-column: span 1;
   }
   .neo-content {

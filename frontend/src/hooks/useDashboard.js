@@ -9,6 +9,8 @@ import {
   playAlertBeep,
   unlockAlertSound,
   alertKey,
+  isAlertRead,
+  addAlertToReadSet,
   loadReadSet,
   saveReadSet,
 } from '../constants'
@@ -51,8 +53,8 @@ function showAlert(data, setAlerts, setPopup, soundOn) {
 
 function sortBySeverity(list, readSet) {
   return [...list].sort((a, b) => {
-    const ra = readSet.has(alertKey(a)) ? 1 : 0
-    const rb = readSet.has(alertKey(b)) ? 1 : 0
+    const ra = isAlertRead(readSet, a) ? 1 : 0
+    const rb = isAlertRead(readSet, b) ? 1 : 0
     if (ra !== rb) return ra - rb
     const sa = SEVERITY_RANK[a.anomaly_type] || 0
     const sb = SEVERITY_RANK[b.anomaly_type] || 0
@@ -61,6 +63,36 @@ function sortBySeverity(list, readSet) {
     const tb = new Date(b.timestamp || 0).getTime()
     return tb - ta
   })
+}
+
+function historyToAlert(h) {
+  return {
+    type: 'anomaly_alert',
+    id: h.id,
+    camera_id: h.camera_id,
+    track_id: h.track_id,
+    anomaly_type: h.anomaly_type,
+    confidence_score: h.confidence_score,
+    report: h.ai_generated_report || `${h.anomaly_type} tespit edildi`,
+    timestamp: h.timestamp,
+    snapshot_id: h.snapshot_id,
+  }
+}
+
+/** Okunmamış kayıtları canlı kuyruğa yükle (yenilemede sıfırlanmasın). */
+function mergeUnreadAlerts(prev, historyItems, read) {
+  const map = new Map()
+  for (const h of historyItems || []) {
+    const mapped = historyToAlert(h)
+    if (isAlertRead(read, mapped)) continue
+    map.set(alertKey(mapped), mapped)
+  }
+  for (const a of prev || []) {
+    if (isAlertRead(read, a)) continue
+    const key = alertKey(a)
+    if (!map.has(key)) map.set(key, a)
+  }
+  return [...map.values()].slice(0, 40)
 }
 
 export function useDashboard() {
@@ -83,6 +115,12 @@ export function useDashboard() {
   const lastDbIdRef = useRef(0)
   const soundRef = useRef(soundOn)
   soundRef.current = soundOn
+  const readSetRef = useRef(readSet)
+  readSetRef.current = readSet
+  const historyRef = useRef(history)
+  historyRef.current = history
+  const alertsRef = useRef(alerts)
+  alertsRef.current = alerts
 
   useEffect(() => {
     applyTheme(theme)
@@ -113,23 +151,34 @@ export function useDashboard() {
   }, [])
 
   const markRead = useCallback((item) => {
-    const key = alertKey(item)
+    const markedOnly = addAlertToReadSet(new Set(), item)
     setReadSet((prev) => {
-      const next = new Set(prev)
-      next.add(key)
+      const next = addAlertToReadSet(prev, item)
       saveReadSet(next)
+      readSetRef.current = next
       return next
     })
+    setAlerts((prev) => prev.filter((a) => !isAlertRead(markedOnly, a)))
   }, [])
 
   const markReadKeys = useCallback((keys) => {
     if (!keys?.length) return
+    const keySet = new Set(keys)
+    let nextRead = null
     setReadSet((prev) => {
-      const next = new Set(prev)
+      let next = new Set(prev)
       for (const k of keys) next.add(k)
+      for (const item of [...(alertsRef.current || []), ...(historyRef.current || [])]) {
+        if (keySet.has(alertKey(item)) || isAlertRead(keySet, item)) {
+          next = addAlertToReadSet(next, item)
+        }
+      }
       saveReadSet(next)
+      readSetRef.current = next
+      nextRead = next
       return next
     })
+    setAlerts((prev) => prev.filter((a) => !isAlertRead(nextRead || readSetRef.current, a)))
     setSelectedKeys((prev) => {
       const next = new Set(prev)
       for (const k of keys) next.delete(k)
@@ -162,21 +211,18 @@ export function useDashboard() {
       const items = data.items || []
       setHistory(items)
 
+      // Okunmamış geçmiş → canlı kuyruk (sayfa yenilenince sayı korunur)
+      const read = readSetRef.current
+      setAlerts((prev) => mergeUnreadAlerts(prev, items, read))
+
       const wsOpen = wsRef.current?.readyState === WebSocket.OPEN
       if (!wsOpen && items.length > 0 && items[0].id > lastDbIdRef.current) {
         const latest = items[0]
         if (lastDbIdRef.current > 0) {
-          showAlert({
-            type: 'anomaly_alert',
-            id: latest.id,
-            camera_id: latest.camera_id,
-            track_id: latest.track_id,
-            anomaly_type: latest.anomaly_type,
-            confidence_score: latest.confidence_score,
-            report: latest.ai_generated_report || `${latest.anomaly_type} tespit edildi`,
-            timestamp: latest.timestamp,
-            snapshot_id: latest.snapshot_id,
-          }, setAlerts, setPopup, soundRef.current)
+          const mapped = historyToAlert(latest)
+          if (!isAlertRead(read, mapped)) {
+            showAlert(mapped, setAlerts, setPopup, soundRef.current)
+          }
         }
         lastDbIdRef.current = items[0].id
       } else if (items.length > 0) {
@@ -289,17 +335,27 @@ export function useDashboard() {
     return sortBySeverity(list, readSet)
   }, [history, filters, readSet])
 
-  const unreadCount = filteredAlerts.filter((a) => !readSet.has(alertKey(a))).length
+  // Okunmamış: geçmiş + canlı (yenilemede history ile korunur)
+  const unreadKeys = useMemo(() => {
+    const keys = new Set()
+    for (const a of alerts) {
+      if (!isAlertRead(readSet, a)) keys.add(alertKey(a))
+    }
+    for (const h of history) {
+      if (!isAlertRead(readSet, h)) keys.add(alertKey(h))
+    }
+    return [...keys]
+  }, [alerts, history, readSet])
+
+  const unreadCount = unreadKeys.length
   const selectedCount = selectedKeys.size
   const allLiveSelected =
     filteredAlerts.length > 0 && filteredAlerts.every((a) => selectedKeys.has(alertKey(a)))
   const allHistorySelected =
     filteredHistory.length > 0 && filteredHistory.every((h) => selectedKeys.has(alertKey(h)))
-  const unreadLiveKeys = filteredAlerts
-    .filter((a) => !readSet.has(alertKey(a)))
-    .map((a) => alertKey(a))
+  const unreadLiveKeys = unreadKeys
   const unreadHistoryKeys = filteredHistory
-    .filter((h) => !readSet.has(alertKey(h)))
+    .filter((h) => !isAlertRead(readSet, h))
     .map((h) => alertKey(h))
   const selectedUnreadKeys = [...selectedKeys].filter((k) => !readSet.has(k))
 

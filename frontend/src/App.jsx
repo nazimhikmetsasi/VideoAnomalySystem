@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import { apiFetch, clearToken, getToken } from './api'
-import { applyTheme, getStoredTheme, applyLayout, getStoredLayout } from './constants'
+import { applyTheme, getStoredTheme } from './constants'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -10,7 +10,6 @@ export default function App() {
 
   useEffect(() => {
     applyTheme(getStoredTheme())
-    applyLayout(getStoredLayout())
   }, [])
 
   useEffect(() => {

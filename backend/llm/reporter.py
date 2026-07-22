@@ -102,10 +102,19 @@ class LLMReporter:
         }
         status = self.status()
         if status['mode'] == 'template':
+            if status.get('quota_cooldown'):
+                msg = (
+                    'LLM kota/limit sogutmasinda — bir sure sablon kullaniliyor. '
+                    'API yeniden baslatilarak sogutma sifirlanabilir.'
+                )
+            elif not status.get('configured'):
+                msg = 'API anahtari tanimli degil. .env dosyasina GEMINI_API_KEY ekleyin.'
+            else:
+                msg = 'Sablon modu aktif.'
             return {
                 **status,
                 'ok': False,
-                'message': 'API anahtari tanimli degil. .env dosyasina GEMINI_API_KEY ekleyin.',
+                'message': msg,
                 'sample_report': self._template_report(sample),
             }
 
@@ -215,4 +224,144 @@ class LLMReporter:
 
         return (
             f"Varlık ID:{tid} {action} ({cam}). Güven skoru: {score:.2f}."
+        )
+
+    def generate_daily_report(self, summary: dict) -> dict:
+        """Gunluk ozet raporu — Gemini varsa AI, yoksa sablon."""
+        self._refresh_config()
+        status = self.status()
+        mode = status['mode']
+        text = None
+
+        if mode == 'llm' and self.provider == 'gemini' and self.gemini_key:
+            try:
+                text = self._gemini_daily(summary)
+            except Exception as e:
+                self._trip_quota_cooldown(e)
+                logger.warning(f"Gemini gunluk rapor hatasi, sablon: {e}")
+                mode = 'template'
+        elif mode == 'llm' and self.provider == 'openai' and self.openai_key:
+            try:
+                text = self._openai_daily(summary)
+            except Exception as e:
+                self._trip_quota_cooldown(e)
+                logger.warning(f"OpenAI gunluk rapor hatasi, sablon: {e}")
+                mode = 'template'
+
+        if not text:
+            text = self._template_daily(summary)
+            mode = 'template'
+
+        return {
+            'report': text,
+            'mode': mode,
+            'provider': status['provider'],
+            'model': status['model'],
+        }
+
+    def _daily_prompt(self, summary: dict) -> str:
+        by_type = summary.get('by_type') or {}
+        type_lines = ', '.join(
+            f"{ANOMALY_LABELS.get(k, k)}: {v}" for k, v in by_type.items()
+        ) or 'yok'
+        top = summary.get('top_events') or []
+        top_lines = []
+        for e in top[:5]:
+            tip = ANOMALY_LABELS.get(e.get('anomaly_type'), e.get('anomaly_type'))
+            top_lines.append(
+                f"- {tip} | kam={e.get('camera_id')} | id={e.get('track_id')} | "
+                f"guven={e.get('confidence_score')}"
+            )
+        hourly = summary.get('hourly') or []
+        peak = summary.get('peak_hour')
+        return (
+            "Sen bir guvenlik izleme operasyon asistanisin. Asagidaki gunluk istatistiklerden "
+            "kisa, resmi Turkce durum raporu yaz. 3-6 cumle. Madde isareti kullanma; "
+            "akici paragraf veya kisa paragraflar olsun. Uydurma bilgi ekleme.\n"
+            f"Tarih: {summary.get('date')}\n"
+            f"Toplam uyari: {summary.get('total', 0)}\n"
+            f"Tip dagilimi: {type_lines}\n"
+            f"Kameralar: {', '.join(summary.get('cameras') or []) or 'yok'}\n"
+            f"En yogun saat: {peak if peak is not None else 'yok'} (0-23)\n"
+            f"Saatlik sayilar: {hourly}\n"
+            f"Kritik olaylar:\n" + ('\n'.join(top_lines) if top_lines else 'yok')
+        )
+
+    def _gemini_daily(self, summary: dict) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        payload = {
+            'contents': [{'parts': [{'text': self._daily_prompt(summary)}]}],
+            'generationConfig': {'temperature': 0.35, 'maxOutputTokens': 512},
+        }
+        timeout = max(self.http_timeout, 12.0)
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, params={'key': self.gemini_key}, json=payload)
+            if resp.status_code != 200:
+                detail = resp.text[:300]
+                raise RuntimeError(f"Gemini HTTP {resp.status_code}: {detail}")
+            return self._extract_gemini_text(resp.json())
+
+    def _openai_daily(self, summary: dict) -> str:
+        url = 'https://api.openai.com/v1/chat/completions'
+        headers = {'Authorization': f'Bearer {self.openai_key}'}
+        payload = {
+            'model': self.model if 'gpt' in self.model else 'gpt-4o-mini',
+            'messages': [
+                {'role': 'system', 'content': 'Sen bir guvenlik operasyonu raporlama asistanisin.'},
+                {'role': 'user', 'content': self._daily_prompt(summary)},
+            ],
+            'max_tokens': 450,
+        }
+        timeout = max(self.http_timeout, 12.0)
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()['choices'][0]['message']['content'].strip()
+
+    def _template_daily(self, summary: dict) -> str:
+        total = int(summary.get('total') or 0)
+        date = summary.get('date') or 'bugün'
+        by_type = summary.get('by_type') or {}
+        cams = summary.get('cameras') or []
+        peak = summary.get('peak_hour')
+        top = summary.get('top_events') or []
+
+        if total == 0:
+            return (
+                f"{date} tarihli MCBU anomali durum raporu: Bugün kayıtlı uyarı bulunmamaktadır. "
+                f"İzlenen kamera sayısı: {len(cams) or 0}. Sistem izlemeye devam etmektedir."
+            )
+
+        parts = [
+            f"{ANOMALY_LABELS.get(k, k)} ({v})" for k, v in sorted(
+                by_type.items(), key=lambda x: -x[1]
+            )
+        ]
+        dist = ', '.join(parts) if parts else 'dağılım yok'
+        cam_txt = ', '.join(cams) if cams else 'belirtilmedi'
+        peak_txt = (
+            f" En yoğun saat dilimi {int(peak):02d}:00 civarıdır."
+            if peak is not None else ''
+        )
+
+        crit_bits = []
+        for e in top[:3]:
+            tip = ANOMALY_LABELS.get(e.get('anomaly_type'), e.get('anomaly_type'))
+            conf = e.get('confidence_score')
+            try:
+                conf_s = f"{float(conf):.2f}"
+            except (TypeError, ValueError):
+                conf_s = str(conf)
+            crit_bits.append(
+                f"{tip} (kamera {e.get('camera_id')}, varlık {e.get('track_id')}, güven {conf_s})"
+            )
+        crit = (
+            f" Öne çıkan olaylar: {'; '.join(crit_bits)}."
+            if crit_bits else ''
+        )
+
+        return (
+            f"{date} tarihli MCBU anomali durum raporu: Bugün toplam {total} uyarı kaydedilmiştir. "
+            f"Tip dağılımı: {dist}. İlgili kameralar: {cam_txt}.{peak_txt}{crit} "
+            f"Rapor şablon motoru ile üretilmiştir."
         )

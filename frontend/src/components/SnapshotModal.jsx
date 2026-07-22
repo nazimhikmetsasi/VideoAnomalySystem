@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchMediaUrl } from '../media'
-import { ANOMALY_LABELS, ANOMALY_BADGE, alertKey } from '../constants'
+import { ANOMALY_LABELS, ANOMALY_BADGE, alertKey, isAlertRead } from '../constants'
 
 function toMs(ts) {
   if (ts == null) return 0
@@ -80,7 +80,7 @@ export default function SnapshotModal({
   if (!alert) return null
 
   const currentKey = alertKey(alert)
-  const isRead = readSet?.has?.(currentKey)
+  const isRead = isAlertRead(readSet, alert)
 
   return (
     <div
@@ -148,7 +148,7 @@ export default function SnapshotModal({
                     (h.id != null && alert.id != null && h.id === alert.id) ||
                     (h.snapshot_id && alert.snapshot_id && h.snapshot_id === alert.snapshot_id) ||
                     key === currentKey
-                  const rowRead = readSet?.has?.(key)
+                  const rowRead = isAlertRead(readSet, h)
                   return (
                     <li key={`${key}-${i}`}>
                       <button

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import MetricsPanel from './MetricsPanel'
 import LivePreview from './LivePreview'
 import AlertGallery from './AlertGallery'
@@ -8,32 +8,30 @@ import StatsSummary from './StatsSummary'
 import SnapshotModal from './SnapshotModal'
 import ThemeToggle from './ThemeToggle'
 import SoundToggle from './SoundToggle'
-import LayoutToggle from './LayoutToggle'
+import HourlyTrend from './HourlyTrend'
+import DailyReportCard from './DailyReportCard'
+import SystemStatusCard from './SystemStatusCard'
 import { useDashboard } from '../hooks/useDashboard'
 import {
   ANOMALY_LABELS,
   ANOMALY_BADGE,
   alertKey,
+  isAlertRead,
+  getStoredNav,
+  saveNav,
 } from '../constants'
 
 const NAV = [
-  { id: 'overview', label: 'Özet', icon: IconGrid },
-  { id: 'live', label: 'Canlı', icon: IconPulse },
-  { id: 'history', label: 'Geçmiş', icon: IconClock },
-  { id: 'camera', label: 'Kamera', icon: IconCam },
-  { id: 'zones', label: 'Bölgeler', icon: IconMap },
-  { id: 'metrics', label: 'Metrik', icon: IconChart },
+  { id: 'overview', label: 'Özet', sub: 'Durum kartları ve günlük özet', icon: IconGrid },
+  { id: 'live', label: 'Canlı', sub: 'Anlık uyarı kuyruğu', icon: IconPulse },
+  { id: 'history', label: 'Geçmiş', sub: 'Kayıtlı anomali listesi', icon: IconClock },
+  { id: 'camera', label: 'Kamera', sub: 'Canlı önizleme ve galeri', icon: IconCam },
+  { id: 'zones', label: 'Bölgeler', sub: 'Yasaklı alan haritası', icon: IconMap },
+  { id: 'metrics', label: 'Metrik', sub: 'Pilot değerlendirme sonuçları', icon: IconChart },
 ]
 
-function scrollTo(id) {
-  document.getElementById(`neo-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-/**
- * Şablon (neo) panel — sidebar + bento kart düzeni.
- * Klasik sürüme LayoutToggle ile dönülebilir.
- */
-export default function DashboardNeo({ user, onLogout, layout, onLayoutChange }) {
+/** Ana panel — kenar menü ile tek sayfa görünümü. */
+export default function DashboardNeo({ user, onLogout }) {
   const d = useDashboard()
   const {
     alerts, history, connected, popup, testMsg, llmStatus, cameras,
@@ -43,8 +41,13 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
     filteredAlerts, filteredHistory, unreadCount, unreadLiveKeys,
   } = d
 
-  const [nav, setNav] = useState('overview')
+  const [nav, setNav] = useState(() => getStoredNav())
   const userLabel = user?.username || 'kullanıcı'
+  const activeNav = NAV.find((n) => n.id === nav) || NAV[0]
+
+  useEffect(() => {
+    saveNav(nav)
+  }, [nav])
 
   const todayCount = useMemo(() => {
     const now = new Date()
@@ -54,10 +57,7 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
     }).length
   }, [history])
 
-  const go = (id) => {
-    setNav(id)
-    scrollTo(id)
-  }
+  const cameraList = cameras.length ? cameras : [{ id: previewCam, name: previewCam }]
 
   return (
     <div className="neo-shell min-h-screen text-[var(--text)]">
@@ -79,7 +79,7 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
                 key={item.id}
                 type="button"
                 className={`neo-nav__item ${active ? 'is-active' : ''}`}
-                onClick={() => go(item.id)}
+                onClick={() => setNav(item.id)}
               >
                 <Icon />
                 <span>{item.label}</span>
@@ -89,12 +89,11 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
         </nav>
 
         <div className="neo-sidebar__foot">
-          <LayoutToggle layout={layout} onChange={onLayoutChange} />
-          <div className="flex gap-2 items-center">
+          <div className="neo-sidebar__toggles">
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <SoundToggle soundOn={soundOn} onToggle={toggleSound} />
           </div>
-          <button type="button" className="neo-btn neo-btn--ghost w-full" onClick={onLogout}>
+          <button type="button" className="neo-btn neo-btn--lime w-full" onClick={onLogout}>
             Çıkış
           </button>
         </div>
@@ -103,8 +102,8 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
       <div className="neo-main">
         <header className="neo-topbar">
           <div>
-            <h1 className="neo-topbar__title">Anomali Paneli</h1>
-            <p className="neo-topbar__sub">Canlı izleme · uyarı · rapor</p>
+            <h1 className="neo-topbar__title">{activeNav.label}</h1>
+            <p className="neo-topbar__sub">{activeNav.sub}</p>
           </div>
           <div className="neo-topbar__actions">
             <span className={`neo-pill ${connected ? 'neo-pill--ok' : 'neo-pill--bad'}`}>
@@ -134,7 +133,10 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
             <div className="fixed top-6 right-6 z-50 max-w-sm toast-in">
               <button
                 type="button"
-                onClick={() => setSelectedAlert(popup)}
+                onClick={() => {
+                  setSelectedAlert(popup)
+                  setNav('live')
+                }}
                 className="neo-card neo-card--popup text-left w-full"
               >
                 <p className="text-xs text-[var(--neo-lime)] font-semibold uppercase tracking-wider mb-1">
@@ -151,184 +153,244 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
             </div>
           )}
 
-          <section id="neo-overview" className="neo-bento">
-            <article className="neo-card neo-card--gradient neo-span-2">
-              <p className="neo-card__eyebrow">Okunmamış</p>
-              <p className="neo-card__hero-num">{unreadCount}</p>
-              <p className="neo-card__hint">Canlı uyarı kuyruğu</p>
-              {unreadLiveKeys.length > 0 && (
-                <button
-                  type="button"
-                  className="neo-btn neo-btn--lime mt-4"
-                  onClick={() => markReadKeys(unreadLiveKeys)}
-                >
-                  Tümünü okundu işaretle
-                </button>
-              )}
-            </article>
+          {nav === 'overview' && (
+            <section className="neo-bento">
+              <article className="neo-card neo-card--gradient neo-span-2">
+                <p className="neo-card__eyebrow">Okunmamış</p>
+                <p className="neo-card__hero-num">{unreadCount}</p>
+                <p className="neo-card__hint">Canlı uyarı kuyruğu</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {unreadLiveKeys.length > 0 && (
+                    <button
+                      type="button"
+                      className="neo-btn neo-btn--lime"
+                      onClick={() => markReadKeys(unreadLiveKeys)}
+                    >
+                      Tümünü okundu işaretle
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="neo-btn neo-btn--ghost"
+                    onClick={() => setNav('live')}
+                  >
+                    Canlı uyarılar
+                  </button>
+                </div>
+              </article>
 
-            <article className="neo-card neo-card--gradient-alt">
-              <p className="neo-card__eyebrow">Bugün</p>
-              <p className="neo-card__hero-num">{todayCount}</p>
-              <p className="neo-card__hint">Toplam olay</p>
-            </article>
+              <article className="neo-card neo-card--gradient-alt">
+                <p className="neo-card__eyebrow">Bugün</p>
+                <p className="neo-card__hero-num">{todayCount}</p>
+                <p className="neo-card__hint">Toplam olay</p>
+              </article>
 
-            <article className="neo-card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="neo-card__title">Kameralar</h2>
-                <span className="text-xs text-[var(--muted)]">{cameras.length || 1}</span>
+              <article className="neo-card">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="neo-card__title">Kameralar</h2>
+                  <span className="text-xs text-[var(--muted)]">{cameraList.length}</span>
+                </div>
+                <ul className="neo-list">
+                  {cameraList.map((c, i) => {
+                    const active = previewCam === c.id
+                    const colors = ['#7dffa0', '#6ec8ff', '#4db8a8']
+                    return (
+                      <li key={c.id} className="neo-list__row">
+                        <span className="neo-avatar" style={{ background: colors[i % colors.length] }} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{c.name || c.id}</p>
+                          <p className="text-[11px] text-[var(--muted)]">{c.id}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`neo-btn ${active ? 'neo-btn--lime' : 'neo-btn--ghost'} !py-1 !px-3 !text-xs`}
+                          onClick={() => {
+                            setPreviewCam(c.id)
+                            setNav('camera')
+                          }}
+                        >
+                          {active ? 'Aktif' : 'Aç'}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </article>
+
+              <article className="neo-card neo-span-2">
+                <StatsSummary history={history} />
+              </article>
+
+              <SystemStatusCard
+                connected={connected}
+                llmStatus={llmStatus}
+                activeCamera={
+                  cameraList.find((c) => c.id === previewCam) || cameraList[0] || null
+                }
+                cameras={cameraList}
+                todayCount={todayCount}
+                onOpenCamera={(id) => {
+                  setPreviewCam(id)
+                  setNav('camera')
+                }}
+              />
+
+              <div className="neo-span-4">
+                <HourlyTrend history={history} />
               </div>
-              <ul className="neo-list">
-                {(cameras.length ? cameras : [{ id: previewCam, name: previewCam }]).map((c, i) => {
-                  const active = previewCam === c.id
-                  const colors = ['#7dffa0', '#6ec8ff', '#b794ff']
-                  return (
-                    <li key={c.id} className="neo-list__row">
-                      <span className="neo-avatar" style={{ background: colors[i % colors.length] }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{c.name || c.id}</p>
-                        <p className="text-[11px] text-[var(--muted)]">{c.id}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`neo-btn ${active ? 'neo-btn--lime' : 'neo-btn--ghost'} !py-1 !px-3 !text-xs`}
-                        onClick={() => {
-                          setPreviewCam(c.id)
-                          go('camera')
-                        }}
-                      >
-                        {active ? 'Aktif' : 'Aç'}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </article>
 
-            <article className="neo-card neo-span-2">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="neo-card__title">Bugünkü özet</h2>
-                <button type="button" className="neo-btn neo-btn--lime !text-xs" onClick={() => go('metrics')}>
-                  Metrikler
-                </button>
+              <div className="neo-span-4">
+                <DailyReportCard
+                  history={history}
+                  cameras={cameras}
+                  llmStatus={llmStatus}
+                />
               </div>
-              <StatsSummary history={history} />
-            </article>
-          </section>
+            </section>
+          )}
 
-          <div id="neo-live" className="scroll-mt-4">
-            <AlertFilters
-              filters={filters}
-              onChange={setFilters}
-              cameras={cameras}
-              exportRows={filteredHistory}
-            />
-          </div>
-
-          <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <article className="neo-card overflow-hidden !p-0">
-              <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
-                <h2 className="neo-card__title">Canlı uyarılar</h2>
-                <span className="text-xs text-[var(--muted)]">{filteredAlerts.length}</span>
-              </div>
-              <div className="p-3 max-h-[26rem] overflow-auto">
-                {filteredAlerts.length === 0 ? (
-                  <p className="text-sm text-[var(--muted)] text-center py-10">Bildirim yok.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {filteredAlerts.slice(0, 12).map((a, i) => {
-                      const key = alertKey(a)
-                      const isRead = readSet.has(key)
-                      return (
-                        <li key={`${key}-${i}`} className={isRead ? 'alert-card--read' : ''}>
-                          <button
-                            type="button"
-                            className="neo-alert-row w-full text-left"
-                            onClick={() => setSelectedAlert(a)}
-                          >
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[a.anomaly_type] || ''}`}>
-                              {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
-                            </span>
-                            <p className="text-sm mt-2 text-[var(--muted)] line-clamp-2">{a.report}</p>
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <p className="text-[11px] text-[var(--muted)]">{a.camera_id} · ID {a.track_id}</p>
-                              {!isRead && (
-                                <span
-                                  role="button"
-                                  tabIndex={0}
-                                  className="neo-btn neo-btn--lime !py-0.5 !px-2 !text-[10px]"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    markRead(a)
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
+          {nav === 'live' && (
+            <section className="space-y-5">
+              <AlertFilters
+                filters={filters}
+                onChange={setFilters}
+                cameras={cameras}
+                exportRows={filteredHistory}
+              />
+              <article className="neo-card overflow-hidden !p-0">
+                <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+                  <h2 className="neo-card__title">Canlı uyarılar</h2>
+                  <span className="text-xs text-[var(--muted)]">
+                    {unreadCount} okunmamış · {filteredAlerts.length} toplam
+                  </span>
+                </div>
+                <div className="p-3 max-h-[min(70vh,40rem)] overflow-auto">
+                  {filteredAlerts.length === 0 ? (
+                    <p className="text-sm text-[var(--muted)] text-center py-10">Bildirim yok.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {filteredAlerts.map((a, i) => {
+                        const key = alertKey(a)
+                        const isRead = isAlertRead(readSet, a)
+                        return (
+                          <li key={`${key}-${i}`} className={isRead ? 'alert-card--read' : ''}>
+                            <button
+                              type="button"
+                              className="neo-alert-row w-full text-left"
+                              onClick={() => setSelectedAlert(a)}
+                            >
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[a.anomaly_type] || ''}`}>
+                                {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
+                              </span>
+                              <p className="text-sm mt-2 text-[var(--muted)] line-clamp-2">{a.report}</p>
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <p className="text-[11px] text-[var(--muted)]">{a.camera_id} · ID {a.track_id}</p>
+                                {!isRead && (
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    className="neo-btn neo-btn--lime !py-0.5 !px-2 !text-[10px]"
+                                    onClick={(e) => {
                                       e.stopPropagation()
                                       markRead(a)
-                                    }
-                                  }}
-                                >
-                                  Okundu
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            </article>
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.stopPropagation()
+                                        markRead(a)
+                                      }
+                                    }}
+                                  >
+                                    Okundu
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </article>
+            </section>
+          )}
 
-            <article id="neo-history" className="neo-card overflow-hidden !p-0 scroll-mt-4">
-              <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
-                <h2 className="neo-card__title">Geçmiş kayıtlar</h2>
-                <span className="text-xs text-[var(--muted)]">{filteredHistory.length}</span>
-              </div>
-              <div className="overflow-auto max-h-[26rem]">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-[var(--neo-card)]">
-                    <tr className="text-[var(--muted)] text-left border-b border-[var(--line)]">
-                      <th className="px-4 py-3 font-medium">Zaman</th>
-                      <th className="px-3 py-3 font-medium">Tip</th>
-                      <th className="px-3 py-3 font-medium">Kamera</th>
-                      <th className="px-4 py-3 font-medium text-right">Güven</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-[var(--muted)]">Kayıt yok.</td>
+          {nav === 'history' && (
+            <section className="space-y-5">
+              <AlertFilters
+                filters={filters}
+                onChange={setFilters}
+                cameras={cameras}
+                exportRows={filteredHistory}
+              />
+              <article className="neo-card overflow-hidden !p-0">
+                <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+                  <h2 className="neo-card__title">Geçmiş kayıtlar</h2>
+                  <span className="text-xs text-[var(--muted)]">{filteredHistory.length}</span>
+                </div>
+                <div className="overflow-auto max-h-[min(70vh,40rem)]">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-[var(--neo-card)]">
+                      <tr className="text-[var(--muted)] text-left border-b border-[var(--line)]">
+                        <th className="px-4 py-3 font-medium">Zaman</th>
+                        <th className="px-3 py-3 font-medium">Tip</th>
+                        <th className="px-3 py-3 font-medium">Kamera</th>
+                        <th className="px-3 py-3 font-medium">Varlık ID</th>
+                        <th className="px-4 py-3 font-medium text-right">Güven</th>
                       </tr>
-                    ) : (
-                      filteredHistory.slice(0, 40).map((h) => (
-                        <tr
-                          key={h.id}
-                          className="border-b border-[var(--line)] hover:bg-white/[0.03] cursor-pointer"
-                          onClick={() => setSelectedAlert({ ...h, report: h.ai_generated_report })}
-                        >
-                          <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
-                            {new Date(h.timestamp).toLocaleString('tr-TR')}
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[h.anomaly_type] || ''}`}>
-                              {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-[var(--muted)]">{h.camera_id}</td>
-                          <td className="px-4 py-3 text-right tabular-nums">{h.confidence_score?.toFixed(2)}</td>
+                    </thead>
+                    <tbody>
+                      {filteredHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-[var(--muted)]">Kayıt yok.</td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </section>
+                      ) : (
+                        filteredHistory.map((h) => (
+                          <tr
+                            key={h.id}
+                            className="border-b border-[var(--line)] hover:bg-white/[0.03] cursor-pointer"
+                            onClick={() => setSelectedAlert({ ...h, report: h.ai_generated_report })}
+                          >
+                            <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
+                              {new Date(h.timestamp).toLocaleString('tr-TR')}
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${ANOMALY_BADGE[h.anomaly_type] || ''}`}>
+                                {ANOMALY_LABELS[h.anomaly_type] || h.anomaly_type}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-[var(--muted)]">{h.camera_id}</td>
+                            <td className="px-3 py-3 tabular-nums text-[var(--text)]">{h.track_id ?? '—'}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{h.confidence_score?.toFixed(2)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </section>
+          )}
 
-          <section id="neo-camera" className="grid grid-cols-1 lg:grid-cols-3 gap-5 scroll-mt-4">
-            <div className="lg:col-span-2 space-y-5">
+          {nav === 'camera' && (
+            <section className="space-y-5">
+              {cameraList.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {cameraList.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setPreviewCam(c.id)}
+                      className={`neo-btn !text-xs ${
+                        previewCam === c.id ? 'neo-btn--lime' : 'neo-btn--ghost'
+                      }`}
+                    >
+                      {c.name || c.id}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="neo-card !p-0 overflow-hidden">
                 <div className="px-5 py-3 border-b border-[var(--line)] flex items-center justify-between">
                   <h2 className="neo-card__title">Canlı önizleme</h2>
@@ -337,16 +399,40 @@ export default function DashboardNeo({ user, onLogout, layout, onLayoutChange })
                 <LivePreview cameraId={previewCam} />
               </div>
               <AlertGallery cameraId={previewCam} refreshKey={alerts.length} liveAlerts={alerts} />
-            </div>
-            <div id="neo-zones" className="space-y-5 scroll-mt-4">
+            </section>
+          )}
+
+          {nav === 'zones' && (
+            <section className="max-w-3xl">
+              {cameraList.length > 1 && (
+                <div className="flex flex-wrap gap-2 mb-5">
+                  {cameraList.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setPreviewCam(c.id)}
+                      className={`neo-btn !text-xs ${
+                        previewCam === c.id ? 'neo-btn--lime' : 'neo-btn--ghost'
+                      }`}
+                    >
+                      {c.name || c.id}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="neo-card !p-0 overflow-hidden">
                 <ZoneMap cameraId={previewCam} />
               </div>
-              <div id="neo-metrics" className="neo-card !p-0 overflow-hidden scroll-mt-4">
+            </section>
+          )}
+
+          {nav === 'metrics' && (
+            <section className="max-w-3xl">
+              <div className="neo-card !p-0 overflow-hidden">
                 <MetricsPanel />
               </div>
-            </div>
-          </section>
+            </section>
+          )}
         </div>
       </div>
 
