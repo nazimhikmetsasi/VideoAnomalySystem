@@ -8,6 +8,7 @@ import StatsSummary from './StatsSummary'
 import SnapshotModal from './SnapshotModal'
 import ThemeToggle from './ThemeToggle'
 import SoundToggle from './SoundToggle'
+import SecurityModeToggle from './SecurityModeToggle'
 import HourlyTrend from './HourlyTrend'
 import DailyReportCard from './DailyReportCard'
 import SystemStatusCard from './SystemStatusCard'
@@ -37,7 +38,8 @@ export default function DashboardNeo({ user, onLogout }) {
     alerts, history, connected, popup, testMsg, llmStatus, cameras,
     theme, soundOn, filters, setFilters, selectedAlert, setSelectedAlert,
     previewCam, setPreviewCam, readSet,
-    toggleTheme, toggleSound, markRead, markReadKeys, sendTestAlert,
+    securityMode, securityBusy,
+    toggleTheme, toggleSound, toggleSecurityMode, markRead, markReadKeys, sendTestAlert,
     filteredAlerts, filteredHistory, unreadCount, unreadLiveKeys,
   } = d
 
@@ -106,6 +108,13 @@ export default function DashboardNeo({ user, onLogout }) {
             <p className="neo-topbar__sub">{activeNav.sub}</p>
           </div>
           <div className="neo-topbar__actions">
+            <SecurityModeToggle
+              mode={securityMode?.mode}
+              armed={securityMode?.armed !== false}
+              busy={securityBusy}
+              canEdit={user?.role === 'admin'}
+              onToggle={toggleSecurityMode}
+            />
             <span className={`neo-pill ${connected ? 'neo-pill--ok' : 'neo-pill--bad'}`}>
               <span className="neo-dot" />
               {connected ? 'Bağlı' : 'Kopuk'}

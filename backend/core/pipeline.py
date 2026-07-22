@@ -21,6 +21,7 @@ from core.notifier import notify_api
 from core.logging_config import setup_logging
 from core.video_source import open_video_capture, describe_source
 from core.frame_store import save_live_frame, save_alert_snapshot, maybe_save_entity_gallery
+from core.security_mode import is_armed
 
 logger = setup_logging('video_pipeline', 'pipeline.log')
 
@@ -171,8 +172,13 @@ class VideoKafkaProducer:
                     )
                     if snap_id:
                         presence['snapshot_id'] = snap_id
-                    self._publish_anomaly(presence, [])
-                    notify_api(presence)
+                    if is_armed():
+                        self._publish_anomaly(presence, [])
+                        notify_api(presence)
+                    else:
+                        logger.info(
+                            f"Evde modu — presence bildirim yok | track={presence.get('track_id')}"
+                        )
 
                 pose_data = self.pose_estimator.match_track(bbox, frame_poses)
 
@@ -241,9 +247,15 @@ class VideoKafkaProducer:
                     if snap_id:
                         anomaly['snapshot_id'] = snap_id
                     # Panel icin dogrudan API; Kafka anomaly cift bildirim uretmesin
-                    notify_api(anomaly, landmarks)
-                    if os.getenv('ANOMALY_KAFKA_PUBLISH', 'false').lower() == 'true':
-                        self._publish_anomaly(anomaly, landmarks)
+                    if is_armed():
+                        notify_api(anomaly, landmarks)
+                        if os.getenv('ANOMALY_KAFKA_PUBLISH', 'false').lower() == 'true':
+                            self._publish_anomaly(anomaly, landmarks)
+                    else:
+                        logger.info(
+                            f"Evde modu — anomali bildirim yok | "
+                            f"{anomaly.get('anomaly_type')} track={anomaly.get('track_id')}"
+                        )
 
                 track_payload.append(entry)
 

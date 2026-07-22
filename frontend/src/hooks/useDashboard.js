@@ -28,6 +28,7 @@ const MERGE_PRIORITY = {
 
 function showAlert(data, setAlerts, setPopup, soundOn) {
   if (!data || data.type !== 'anomaly_alert') return
+  if (data.suppressed) return
   if (soundOn) queueMicrotask(() => playAlertBeep())
   setAlerts((prev) => {
     const tid = data.track_id
@@ -102,6 +103,8 @@ export function useDashboard() {
   const [popup, setPopup] = useState(null)
   const [testMsg, setTestMsg] = useState('')
   const [llmStatus, setLlmStatus] = useState(null)
+  const [securityMode, setSecurityMode] = useState({ mode: 'away', armed: true, label: 'Koruma' })
+  const [securityBusy, setSecurityBusy] = useState(false)
   const [cameras, setCameras] = useState([])
   const [theme, setTheme] = useState(() => getStoredTheme())
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(SOUND_KEY) !== 'off')
@@ -277,6 +280,41 @@ export function useDashboard() {
     }
   }, [])
 
+  const fetchSecurityMode = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/security/mode')
+      if (res.ok) setSecurityMode(await res.json())
+    } catch (e) {
+      console.error('Güvenlik modu alınamadı', e)
+    }
+  }, [])
+
+  const toggleSecurityMode = useCallback(async () => {
+    const next = securityMode?.armed ? 'home' : 'away'
+    setSecurityBusy(true)
+    try {
+      const res = await apiFetch('/api/security/mode', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: next }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.mode) setSecurityMode(data)
+        setTestMsg(
+          data.armed
+            ? 'Koruma açıldı — anomaliler bildirim üretir.'
+            : 'Evde modu — izleme devam, bildirim kapalı.',
+        )
+        setTimeout(() => setTestMsg(''), 3500)
+      }
+    } catch (e) {
+      console.error('Güvenlik modu değiştirilemedi', e)
+    } finally {
+      setSecurityBusy(false)
+    }
+  }, [securityMode?.armed])
+
   const fetchCameras = useCallback(async () => {
     try {
       const res = await apiFetch('/api/cameras')
@@ -295,14 +333,17 @@ export function useDashboard() {
     fetchHistory()
     fetchLlmStatus()
     fetchCameras()
+    fetchSecurityMode()
     connectWs()
     const poll = setInterval(fetchHistory, 5000)
+    const modePoll = setInterval(fetchSecurityMode, 8000)
     return () => {
       clearInterval(poll)
+      clearInterval(modePoll)
       clearTimeout(reconnectRef.current)
       wsRef.current?.close()
     }
-  }, [fetchHistory, fetchLlmStatus, fetchCameras, connectWs])
+  }, [fetchHistory, fetchLlmStatus, fetchCameras, fetchSecurityMode, connectWs])
 
   const sendTestAlert = async () => {
     unlockAlertSound()
@@ -367,6 +408,8 @@ export function useDashboard() {
     setPopup,
     testMsg,
     llmStatus,
+    securityMode,
+    securityBusy,
     cameras,
     theme,
     soundOn,
@@ -380,6 +423,7 @@ export function useDashboard() {
     selectedKeys,
     toggleTheme,
     toggleSound,
+    toggleSecurityMode,
     markRead,
     markReadKeys,
     toggleSelect,

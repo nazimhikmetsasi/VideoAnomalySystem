@@ -29,6 +29,7 @@ from core.frame_store import (
     live_path, snapshot_path, gallery_path, list_gallery, list_alert_snapshots,
     delete_alert_snapshots,
 )
+from core.security_mode import get_status as security_status, set_mode as set_security_mode, is_armed
 from pathlib import Path
 
 logger = setup_logging('api', 'api.log')
@@ -38,8 +39,31 @@ mongo_repo = MongoRepository()
 llm_reporter = LLMReporter()
 
 
-async def _push_alert(event: dict) -> dict:
-    """DB kaydi + WebSocket + telefon (Telegram). Telefon erken gonderilir."""
+async def _push_alert(event: dict, *, force: bool = False) -> dict:
+    """DB kaydi + WebSocket + telefon (Telegram). Telefon erken gonderilir.
+
+    force=True: test bildirimi (Evde modunda bile gider).
+    Evde (home) modunda gercek alarmlar baskilanir.
+    """
+    if not force and not is_armed():
+        logger.info(
+            f"Evde modu — bildirim yok | {event.get('anomaly_type')} "
+            f"track={event.get('track_id')}"
+        )
+        return {
+            'type': 'anomaly_alert',
+            'suppressed': True,
+            'mode': 'home',
+            'id': None,
+            'camera_id': event.get('camera_id'),
+            'track_id': event.get('track_id'),
+            'anomaly_type': event.get('anomaly_type'),
+            'confidence_score': event.get('confidence_score'),
+            'report': 'Evde modu: bildirim baskilandi',
+            'timestamp': event.get('timestamp'),
+            'snapshot_id': event.get('snapshot_id'),
+        }
+
     phone_result = None
     try:
         # Once telefona: LLM/DB yavas veya hata verse bile alarm dussun
@@ -264,6 +288,28 @@ def list_anomalies(limit: int = 50, user: dict = Depends(get_current_user)):
     return {'items': postgres_repo.list_recent(limit)}
 
 
+@app.get('/api/security/mode')
+def get_security_mode(user: dict = Depends(get_current_user)):
+    """Kur/Birak durumu: home=Evde, away=Koruma."""
+    return security_status()
+
+
+class SecurityModeBody(BaseModel):
+    mode: str
+
+
+@app.put('/api/security/mode')
+def put_security_mode(
+    body: SecurityModeBody,
+    user: dict = Depends(require_role('admin')),
+):
+    """Admin: Evde (home) veya Koruma (away)."""
+    try:
+        return set_security_mode(body.mode, updated_by=user.get('username'))
+    except ValueError as e:
+        return {'ok': False, 'message': str(e), **security_status()}
+
+
 @app.get('/api/zones')
 def get_zones(user: dict = Depends(get_current_user)):
     """Yasakli bolge poligonlari — panel zone haritasi icin."""
@@ -425,7 +471,7 @@ async def test_alert(user: dict = Depends(require_role('admin'))):
         },
         'timestamp': time.time()
     }
-    payload = await _push_alert(event)
+    payload = await _push_alert(event, force=True)
     return {
         'ok': True,
         'message': 'Test bildirimi gonderildi',
