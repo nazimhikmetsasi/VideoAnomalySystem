@@ -19,7 +19,7 @@ export const ANOMALY_ACCENT = {
   FALL: 'border-l-[#e05656]',
   PERSON_ENTERED: 'border-l-sky-500',
   RUN: 'border-l-[#e8a54b]',
-  ZONE_VIOLATION: 'border-l-violet-400',
+  ZONE_VIOLATION: 'border-l-[#3d9a8b]',
   RUN_ZONE: 'border-l-[#e8a54b]',
 }
 
@@ -27,7 +27,7 @@ export const ANOMALY_BADGE = {
   FALL: 'bg-[#e05656]/15 text-[#e05656]',
   PERSON_ENTERED: 'bg-sky-500/15 text-sky-600',
   RUN: 'bg-[#e8a54b]/20 text-[#c47d2c]',
-  ZONE_VIOLATION: 'bg-violet-500/15 text-violet-600',
+  ZONE_VIOLATION: 'bg-[#3d9a8b]/15 text-[#3d9a8b]',
   RUN_ZONE: 'bg-[#e8a54b]/25 text-[#c47d2c]',
 }
 
@@ -49,6 +49,22 @@ export const DATE_RANGES = [
 export const THEME_KEY = 'mcbu_theme'
 export const SOUND_KEY = 'mcbu_sound'
 export const READ_KEY = 'mcbu_read_alerts'
+export const LAYOUT_KEY = 'mcbu_panel_layout'
+
+export const LAYOUT_LABELS = {
+  classic: 'Klasik',
+  neo: 'Şablon',
+}
+
+export function getStoredLayout() {
+  const t = localStorage.getItem(LAYOUT_KEY)
+  return t === 'neo' || t === 'classic' ? t : 'neo'
+}
+
+export function applyLayout(layout) {
+  localStorage.setItem(LAYOUT_KEY, layout)
+  document.documentElement.setAttribute('data-layout', layout)
+}
 
 export function alertKey(a) {
   return [

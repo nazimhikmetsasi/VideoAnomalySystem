@@ -21,7 +21,7 @@ export default function StatsSummary({ history }) {
   const colors = {
     RUN_ZONE: '#e8a54b',
     RUN: '#d4923a',
-    ZONE_VIOLATION: '#8b7ec8',
+    ZONE_VIOLATION: '#3d9a8b',
     FALL: '#e05656',
     PERSON_ENTERED: '#38bdf8',
   }
